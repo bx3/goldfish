@@ -4,12 +4,7 @@ from numpy import linalg as LA
 from scipy.sparse.linalg import svds
 import cvxpy as cvx
 import time
-
-tol_obj = 1e-4 # 10
-tol_normA = 1e-2
-tol_normB = 1e-2
-num_alt = 5000
-max_step = 1
+import config
 
 # A is W, B is H, k is rank which is L, X is observation
 def run_pgd_nmf(L, X):
@@ -64,18 +59,15 @@ def alternate_minimize(A_init, B_init, X, L):
 
     prev_opt = 9999
     opts = []
-    for epoch in range(num_alt):
-        norm_delta_A = 9999
+    for epoch in range(config.num_alt):
+        # norm_delta_A = 9999
         step_A = 0
         # update A
-        while norm_delta_A>tol_normA and step_A < max_step:
+        while step_A < config.max_step:
             #prev_A = np.copy(A)
             grad_A = P.dot(B.T)
             t_A = 0.25 * LA.norm(grad_A, 'fro')**2 / LA.norm( grad_A.dot(B) * I, 'fro')**2
-
-            # update
             A_tilde = A - t_A * grad_A
-            
             for i in range(num_row):
                 # A[i,:] = euclidean_proj_simplex(A_tilde[i], 1)
                 # A[i,:] = proj_simplex_cvxpy(1, A_tilde[i])
@@ -84,15 +76,13 @@ def alternate_minimize(A_init, B_init, X, L):
                 A[i,:] = projection_simplex_sort(A_tilde[i])
 
             P = (A.dot(B) - X) * I 
+            step_A += 1
             #norm_delta_A = LA.norm(A-prev_A, 'fro')
 
-            step_A += 1
-
-
         # update B
-        norm_delta_B = 9999
+        # norm_delta_B = 9999
         step_B = 0
-        while norm_delta_B>tol_normB and step_B < max_step:
+        while step_B < config.max_step:
             #prev_B = np.copy(B)
             grad_B = (A.T).dot(P)
             t_B = 0.25 * LA.norm(grad_B, 'fro')**2 / LA.norm( A.dot(grad_B) * I, 'fro')**2
@@ -104,7 +94,7 @@ def alternate_minimize(A_init, B_init, X, L):
         P = (A.dot(B) - X) * I
         opt = 0.5 * LA.norm(P, 'fro')
         opts.append(opt)
-        if prev_opt - opt < tol_obj:
+        if prev_opt - opt < config.tol_obj:
             # print('opt', prev_opt - opt)
             # print_matrix(A)
             # print_matrix(B)

@@ -36,8 +36,11 @@ old_weight = 0.5
 new_weight = 1 - old_weight
 
 # optimizer
-window_constant = 6
-use_abs_time = True
+window_constant = 1
+use_abs_time = True 
+tol_obj = 1 # exit optimization difference
+num_alt = 5000  # max exit alteration step
+max_step = 1  # within W H how many step
 
 
 # attack
