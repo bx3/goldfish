@@ -72,7 +72,7 @@ else:
 if subcommand == 'run':
     start = time.time()
     adv_nodes = [i for i in range(config.num_adv)]
-    window = config.window_constant * int(out_lim * math.ceil(math.log(config.num_node))) # T > L log N
+    window = int(config.window_constant * out_lim * math.ceil(math.log(config.num_node))) # T > L log N
     print('window', window)
     perigee = Experiment(
         node_hash,

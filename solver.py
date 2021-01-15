@@ -2,7 +2,7 @@ import sys
 import numpy as np
 from numpy import linalg as LA
 from scipy.sparse.linalg import svds
-import cvxpy as cvx
+# import cvxpy as cvx
 import time
 import config
 

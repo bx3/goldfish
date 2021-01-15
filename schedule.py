@@ -77,21 +77,29 @@ def is_connectable(i, p, network_state, selected):
     else:
         return False
 
-def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, pools):
+def bandit_selection(i, argsorted_peers, network_state, outs_neighbors, out_lim):
+    # select for each outo
+    assert(out_lim == argsorted_peers.shape[0])
+    regions_order = [i for i in range(out_lim)]
+    random.shuffle(regions_order)
+    for l in regions_order:
+        peers = argsorted_peers[l, :]
+        # choose one peers from that regions, peers are sorted in increasing time order
+        for p in peers:
+            if is_connectable(i, p, network_state, outs_neighbors[i]):
+                outs_neighbors[i].append(p)
+                network_state.add_in_connection(i, p)
+                break
+
+def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, pools):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
-    selected = {}
 
     if config.num_thread == 1:
         start = time.time()
         for i in update_nodes:
-            peers = optimizers[i].matrix_factor()
-            selected[i] = peers
-        for i, peers in selected.items():
-            for p in peers:
-                if is_connectable(i, p, network_state, outs_neighbors[i]):
-                    outs_neighbors[i].append(p)
-                    network_state.add_in_connection(i, p)
+            argsorted_peers = optimizers[i].matrix_factor()
+            peers = bandit_selection(i, argsorted_peers, network_state, outs_neighbors, out_lim)
         print('selection', round(time.time()-start, 2))
     else:
         futures = []
@@ -108,15 +116,20 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, update_nodes, t
 
     # choose random peers
     num_random = 0
+    start = time.time()
     for i in update_nodes:
+        trial = 0
         while len(outs_neighbors[i]) < out_lim:
             num_random += 1
             w = np.random.randint(num_node)
             while not is_connectable(i, w, network_state, outs_neighbors[i]):
                 w = np.random.randint(num_node)
+                trial += 1
+                if trial == num_node-1:
+                    print(i, 'tried too many trial for random peer')
+                    break
             outs_neighbors[i].append(w)
             network_state.add_in_connection(i, w)
-    print('num random', num_random)
     return outs_neighbors
             
 

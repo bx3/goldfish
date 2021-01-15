@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 import copy
-from sklearn.decomposition import NMF
+# from sklearn.decomposition import NMF
 import time
 import config
 import solver
@@ -60,12 +60,31 @@ class Optimizer:
         # sys.exit(2)
 
         # then use best neighbor methods to select get neighbors
-        out_conns = self.choose_best_neighbor(H)
-        return out_conns
+        # out_conns = self.choose_best_neighbor(H)
+
+        # tie is not randomized
+        sorted_conns = self.argsort_peers(H)
+        # for i in range(sorted_conns.shape[0]):
+            # if sorted_conns[i][0] != np.argmin(H[i]):
+                # print('num zero', sum(H[i] == 0))
+                # print(list(np.round(H[i],2)))
+                # print(sorted_conns[i])
+                # print(np.argmin(H[i]))
+                # print(min(H[i]))
+                # print(H[i][np.argmin(H[i])])
+                # print(H[i][sorted_conns[i][0]])
+                # sys.exit(2)
+
+        # print(sorted_conns)
+        return sorted_conns
 
     def print_matrix(self, W):
         for i in range(W.shape[0]):
             print(list(W[i]))
+
+    def argsort_peers(self, B):
+        L_neighbors = np.argsort(B, axis=1)
+        return L_neighbors
 
 
     # takes best neighbors from matrix B, currently using argmin, later using bandit

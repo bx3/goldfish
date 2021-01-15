@@ -15,9 +15,10 @@ import numpy as np
 import comm_network
 import random
 from optimizer import Optimizer
+from bandit import Bandit
 import initnetwork
 import math
-from concurrent.futures import ThreadPoolExecutor
+# from concurrent.futures import ThreadPoolExecutor
 
 
 class Experiment:
@@ -41,6 +42,7 @@ class Experiment:
         self.pools = None # ThreadPoolExecutor(max_workers=config.num_thread)
 
         self.optimizers = {}
+        self.bandits = {}
         self.window = window 
 
         
@@ -112,6 +114,14 @@ class Experiment:
                 self.pools
             )
 
+    def init_bandits(self):
+        for i in range(self.num_node):
+            self.bandits[i] = Bandit(
+                i,
+                self.out_lim,
+                self.num_node - 1 # bandit cannot select itself
+            )
+
     def init_graph(self, outs_neighbors):
 
         for i in range(self.num_node):
@@ -126,6 +136,7 @@ class Experiment:
         ins_conns = self.update_ins_conns()
         self.init_selectors(outs_neighbors, ins_conns)
         self.init_optimizers()
+        self.init_bandits()
 
         # for i in range(config.num_node):
             # print(i, outs_neighbors[i], ins_conns[i])
@@ -200,13 +211,14 @@ class Experiment:
     def start(self, max_epoch, record_epochs):
         last = time.time()
         network_state = NetworkState(self.num_node, self.in_lim) 
-
+        print("max_epoch", max_epoch)
         for epoch in range(max_epoch):
             print("\t\tepoch", epoch)
             
             oracle = NetworkOracle(config.is_dynamic, self.adversary.sybils, self.selectors)
             last = time.time()
             outs_conns = {} 
+            network_state.reset(self.num_node, self.in_lim)
             # alternate optimizing
             if config.use_matrix_completion:
                 if epoch-self.window in record_epochs:
@@ -224,6 +236,7 @@ class Experiment:
                         self.ld, 
                         self.nh, 
                         self.optimizers,
+                        self.bandits,
                         node_order, 
                         time_tables, 
                         abs_time_tables,
@@ -271,7 +284,7 @@ class Experiment:
                 # self.check()
                 self.update_selectors(outs_conns, ins_conn)
 
-            network_state.reset(self.num_node, self.in_lim)
+            
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
 
     def check(self):
