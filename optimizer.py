@@ -29,21 +29,21 @@ class Optimizer:
         for i in range(num_msg):
             self.table.append(lines[i])
 
-    def construct_table(self):
-        X = np.zeros((self.window, self.N)) 
-        i = 0 # row
+    # def construct_table(self):
+        # X = np.zeros((self.window, self.N)) 
+        # i = 0 # row
 
-        max_time = 0 
-        for slot in self.table[-self.window:]:
-            for p, t in slot:
-                if t < 0:
-                    print('time', t)
-                    sys.exit(1)
-                X[i, p] = t # t is a single element list, if num_msg is 1
-                if t > max_time:
-                    max_time = t
-            i += 1
-        return X, max_time
+        # max_time = 0 
+        # for slot in self.table[-self.window:]:
+            # for p, t in slot:
+                # if t < 0:
+                    # print('time', t)
+                    # sys.exit(1)
+                # X[i, p] = t # t is a single element list, if num_msg is 1
+                # if t > max_time:
+                    # max_time = t
+            # i += 1
+        # return X, max_time
 
     # return matrix B, i.e. region-node matrix that containing real value score
     def matrix_factor(self):

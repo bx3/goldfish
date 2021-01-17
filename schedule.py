@@ -110,23 +110,27 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
     start = time.time()
     if config.num_thread == 1:
         for i in update_nodes:
-            W, H = optimizers[i].matrix_factor()
-
-            X, max_time =  optimizers[i].construct_table()
+            optimizer = optimizers[i]
+            W, H = solver.run_pgd_nmf(i, optimizer.table[-optimizer.window:], 
+                    optimizer.window, optimizer.N, optimizer.L)
+            X, max_time = solver.construct_table(optimizer.window, 
+                    optimizer.N, optimizer.table[-optimizer.window:])
+            
+            peers = bandit_selection(
+                    bandits[i], W, H, X, network_state, 
+                    outs_neighbors, out_lim, num_msg, max_time)
             # argmin_top_peers = choose_best_neighbor(H)
-            peers = bandit_selection(bandits[i], W, H, X, network_state, outs_neighbors, out_lim, num_msg, max_time)
             # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
-
             # debug
             # print(i, argmin_top_peers, argmin_peers)
             # print(get_times(argmin_top_peers, X, out_lim))
             # print(get_times(argmin_peers, X, out_lim))
             # sys.exit(2)
-
             for p in peers:
                 if is_connectable(i, p, network_state, outs_neighbors[i]):
                     outs_neighbors[i].append(p)
                     network_state.add_in_connection(i, p)
+
         print('selection', round(time.time()-start, 2))
         # print_bandits(bandits)
     else:
@@ -264,6 +268,11 @@ def get_times(peers, X, out_lim):
         times.append(X[k, p])
     return times 
 
+# debug
+def print_matrix(A):
+    for i in range(A.shape[0]):
+        print(list(np.round(A[i], 3)))
+
 def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_msg, pools):
     args = []
     W_, H_ = {}, {}
@@ -278,11 +287,15 @@ def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, 
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
         W, H = results[i]
+        # print(i)
+        # print_matrix(H)
+        # print('')
         W_[i] = W
         H_[i] = H
 
     for i in update_nodes:
-        X, max_time = optimizers[i].construct_table()
+        X, max_time = solver.construct_table(optimizer.window, 
+                    optimizer.N, optimizer.table[-optimizer.window:])
         peers = bandit_selection(
                 bandits[i], W_[i], H_[i], X, network_state, 
                 outs_neighbors, out_lim, num_msg, max_time)

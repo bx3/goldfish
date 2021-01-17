@@ -35,11 +35,11 @@ def check_non_negative(X, whom):
     if X_min < 0:
         raise ValueError("Negative values in data passed to %s" % whom)
 
-def initial_nndsvd(X, n_components):
+def initial_nndsvd(X, n_components, seed):
     check_non_negative(X, "NMF initialization")
     n_samples, n_features = X.shape
     eps=1e-6
-    U, S, V = randomized_svd(X, n_components, random_state=None)
+    U, S, V = randomized_svd(X, n_components, random_state=seed)
     W = np.zeros_like(U)
     H = np.zeros_like(V)
 

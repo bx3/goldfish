@@ -5,7 +5,7 @@ reduce_link_ratio = 0.1
 # load conns state from prev experiment 
 is_load_conn = False 
 conn_path = 'inputs/conn.txt'
-num_thread = 10 
+num_thread = 1
 
 # network config
 num_node = 200
@@ -19,10 +19,11 @@ use_2hop = False
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.1    # exit optimization difference
+tol_obj = 0.01    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
 init_nndsvd = True # use of nndsvd encourage sparsity, use hard update below
+nndsvd_seed = None # set to some number for consistency
 
 # bandit
 alpha = 2 

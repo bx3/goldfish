@@ -22,7 +22,7 @@ def print_matrix(A):
 def init_matrix(L, X):
     A, B = None, None
     if config.init_nndsvd:
-        A, B = nndsvd.initial_nndsvd(X, L)
+        A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
     else:
         A, S, B = svds(X, L)
         I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
