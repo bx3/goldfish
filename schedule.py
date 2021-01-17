@@ -87,8 +87,18 @@ def get_pullable_arms(i, network_state):
                 valid_arms.append(p)
     return valid_arms
 
+def print_bandits(bandits):
+    for i, bandit in bandits.items():
+        arms = bandit.get_pulled_arms()
+        print('\t\t*****', i)
+        for a in arms:
+            region, node = a
+            print('node',i,'region',region,'peer',node, 'scores',bandit.ucb_table[a].score_list)
+
+
 def bandit_selection(bandit, W, H, X, network_state, outs_neighbors, out_lim):
     bandit.update_times(W, X)
+
     valid_arms = get_pullable_arms(bandit.id, network_state)
 
     arms = bandit.pull_arms(valid_arms)
@@ -111,64 +121,6 @@ def bandit_selection(bandit, W, H, X, network_state, outs_neighbors, out_lim):
 
     return arms
 
-# simplest
-def get_argmin_peers(i, H, network_state, outs_neighbors, out_lim):
-    regions_order = [j for j in range(out_lim)]
-    random.shuffle(regions_order)
-    argsorted_peers = np.argsort(H, axis=1)
-    arms = []
-    for l in regions_order:
-        peers = argsorted_peers[l, :]
-        # choose one peers from that regions, peers are sorted in increasing time order
-        for p in peers:
-            if is_connectable(i, p, network_state, arms):
-                arms.append(p)
-                break
-    return arms
-
-def choose_best_neighbor(H):
-    return np.argmin(H, axis=1)
-
-def check_connection_and_X():
-    pass
-def get_times(peers, X, out_lim):
-    times = []
-    for k in range(out_lim):
-        p = peers[k]
-        times.append(X[k, p])
-    return times 
-
-def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools):
-    args = []
-    W_, H_, X_ = {}, {}, {}
-    start = time.time()
-    for i in range(len(update_nodes)):
-        optimizer = optimizers[i] 
-        arg = (i, optimizer.table[-optimizer.window:], optimizer.window, optimizer.N, optimizer.L)
-        args.append(arg)
-
-    results = pools.starmap(solver.run_pgd_nmf, args)
-    print('mt use', round(time.time() -start, 2))
-
-    assert(len(results) == len(update_nodes))
-    for i in range(len(update_nodes)):
-        W, H = results[i]
-        W_[i] = W
-        H_[i] = H
-
-    for i in update_nodes:
-        X = optimizers[i].construct_table()
-        # if i == 32:
-            # print('schedule', X)
-        peers = bandit_selection(bandits[i], W_[i], H_[i], X, network_state, outs_neighbors, out_lim)
-        for p in peers:
-            if is_connectable(i, p, network_state, outs_neighbors[i]):
-                outs_neighbors[i].append(p)
-                network_state.add_in_connection(i, p)
-
-# def single_thread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools):
-
-
 def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, pools):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
@@ -176,7 +128,9 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
     start = time.time()
     if config.num_thread == 1:
         for i in update_nodes:
-            W, H, X = optimizers[i].matrix_factor()
+            W, H = optimizers[i].matrix_factor()
+
+            X =  optimizers[i].construct_table()
             # argmin_top_peers = choose_best_neighbor(H)
             peers = bandit_selection(bandits[i], W, H, X, network_state, outs_neighbors, out_lim)
             # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
@@ -192,10 +146,10 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
                     outs_neighbors[i].append(p)
                     network_state.add_in_connection(i, p)
         print('selection', round(time.time()-start, 2))
+        # print_bandits(bandits)
+        # sys.exit(2)
     else:
-        print('mt')
         multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools)
-
 
     # choose random peers
     num_random = 0
@@ -302,6 +256,61 @@ def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_t
     print('num_rand_1hop', num_rand_1hop,'num_invalid_compose', num_invalid_compose )
     # print('Finish. num2hop', num_added_2hop, 'num3hop', num_added_3hop, 'num rand', num_added_random, 'num no seen', tot_not_seen)
     return outs_neighbors
+
+# simplest
+def get_argmin_peers(i, H, network_state, outs_neighbors, out_lim):
+    regions_order = [j for j in range(out_lim)]
+    random.shuffle(regions_order)
+    argsorted_peers = np.argsort(H, axis=1)
+    arms = []
+    for l in regions_order:
+        peers = argsorted_peers[l, :]
+        # choose one peers from that regions, peers are sorted in increasing time order
+        for p in peers:
+            if is_connectable(i, p, network_state, arms):
+                arms.append(p)
+                break
+    return arms
+
+
+
+def choose_best_neighbor(H):
+    return np.argmin(H, axis=1)
+
+def get_times(peers, X, out_lim):
+    times = []
+    for k in range(out_lim):
+        p = peers[k]
+        times.append(X[k, p])
+    return times 
+
+def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools):
+    args = []
+    W_, H_, X_ = {}, {}, {}
+    start = time.time()
+    for i in range(len(update_nodes)):
+        optimizer = optimizers[i] 
+        arg = (i, optimizer.table[-optimizer.window:], optimizer.window, optimizer.N, optimizer.L)
+        args.append(arg)
+
+    results = pools.starmap(solver.run_pgd_nmf, args)
+
+    assert(len(results) == len(update_nodes))
+    for i in range(len(update_nodes)):
+        W, H = results[i]
+        W_[i] = W
+        H_[i] = H
+
+    for i in update_nodes:
+        X = optimizers[i].construct_table()
+        # if i == 32:
+            # print('schedule', X)
+        peers = bandit_selection(bandits[i], W_[i], H_[i], X, network_state, outs_neighbors, out_lim)
+        for p in peers:
+            if is_connectable(i, p, network_state, outs_neighbors[i]):
+                outs_neighbors[i].append(p)
+                network_state.add_in_connection(i, p)
+
 
 
        

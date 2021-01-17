@@ -56,7 +56,8 @@ class Optimizer:
         # sys.exit(2)
 
         W, H = solver.run_pgd_nmf(self.id, self.table[-self.window:], self.window, self.N, self.L)
-        
+        # self.print_matrix(W)
+        # print('')
         # then use best neighbor methods to select get neighbors
         # out_conns = self.choose_best_neighbor(H)
 
@@ -78,7 +79,7 @@ class Optimizer:
 
     def print_matrix(self, W):
         for i in range(W.shape[0]):
-            print(list(W[i]))
+            print(list(W[i]), sum(W[i]))
 
     def argsort_peers(self, H):
         L_neighbors = np.argsort(H, axis=1)

@@ -7,13 +7,28 @@ is_load_conn = False
 conn_path = 'inputs/conn.txt'
 
 # network config
-num_node = 200
-in_lim = 200 # 40 
+num_node = 100
+in_lim = 100 # 40 
 num_msg = 1 
 
 # neigbor selection method
 use_matrix_completion = True 
 use_2hop = False 
+
+# optimizer
+window_constant = 1
+use_abs_time = True 
+tol_obj = 0.005    # exit optimization difference
+num_alt = 5000  # max exit alteration step
+max_step = 1  # within W H how many step
+init_nndsvd = True # use of nndsvd encourage sparsity, use hard update below
+
+# bandit
+alpha = 2 
+time_constant = 1500 
+hard_update = True   # otherwise soft 
+is_ucb = True # ucb: argmax (c - t) / c, lcb: argmin t
+
 
 # node config
 num_keep = 3
@@ -35,18 +50,7 @@ use_score_decay = False
 old_weight = 0.5 
 new_weight = 1 - old_weight
 
-# optimizer
-window_constant = 1
-use_abs_time = True 
-tol_obj = 10 # 0.005    # exit optimization difference
-num_alt = 5000  # max exit alteration step
-max_step = 1  # within W H how many step
-init_nndsvd = True # use of nndsvd encourage sparsity, use hard update below
 
-# bandit
-alpha = 2 
-time_constant = 2500 
-hard_update = False   # otherwise soft 
 
 
 # attack
