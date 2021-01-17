@@ -161,7 +161,7 @@ class Experiment:
         curr_time = time.time()
         elapsed = curr_time - self.timer 
         self.timer = curr_time
-        print("Finish. Recording", epoch, "since last record using", elapsed)
+        print(" * Recorded at beginning of ", epoch)
 
     def init_selectors(self, out_conns, in_conns):
         for u in range(self.num_node):
@@ -204,33 +204,34 @@ class Experiment:
         assert(update_nodes != None and len(update_nodes) == self.num_node)
         return update_nodes
 
-    def accumulate_optimizer(self, time_table, abs_time_tables):
+    def accumulate_optimizer(self, time_table, abs_time_tables, num_msg):
         for i in range(self.num_node):
             if config.use_abs_time:
-                self.optimizers[i].append_time(abs_time_tables[i])
+                self.optimizers[i].append_time(abs_time_tables[i], num_msg)
             else:
                 self.optimizers[i].append_time(time_table[i])
 
-    def start(self, max_epoch, record_epochs):
-        last = time.time()
+    def start(self, max_epoch, record_epochs, num_msg):
         network_state = NetworkState(self.num_node, self.in_lim) 
         for epoch in range(max_epoch):
-            print("\t\tepoch", epoch)
+            print('\t\t < epoch', epoch, 'start>')
+            epoch_start = time.time()
             
             oracle = NetworkOracle(config.is_dynamic, self.adversary.sybils, self.selectors)
-            last = time.time()
             outs_conns = {} 
             network_state.reset(self.num_node, self.in_lim)
-            # alternate optimizing
+
             if config.use_matrix_completion:
-                if epoch-self.window in record_epochs:
-                    self.take_snapshot(epoch-self.window)
+                if epoch in record_epochs:
+                    self.take_snapshot(epoch)
+                if epoch > max_epoch:
+                    return
 
-                time_tables, abs_time_tables = self.broadcast_msgs(1)
-                self.accumulate_optimizer(time_tables, abs_time_tables)
+                time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
+                self.accumulate_optimizer(time_tables, abs_time_tables, num_msg)
 
-                if epoch > self.window:
-                    # work on matrix factorization
+                if epoch*num_msg >= self.window:
+                    # matrix factorization
                     node_order = self.shuffle_nodes()
                     outs_conns = schedule.select_nodes_by_matrix_completion(
                         self.nodes, 
@@ -244,6 +245,7 @@ class Experiment:
                         self.in_lim,
                         self.out_lim, 
                         network_state,
+                        num_msg,
                         self.pools
                         )
                 else:
@@ -252,24 +254,19 @@ class Experiment:
                         self.out_lim, 
                         self.in_lim, 
                         self.num_node)
-                    for i in range(self.num_node):
-                        if len(outs_conns[i]) != self.out_lim:
-                            print(outs_conns[i])
-                            sys.exit(1)
-
                 # updates connections
                 ins_conn = self.update_conns(outs_conns)
+
             else:
+                # 1,2,3 hop selection
                 if epoch in record_epochs:
                     self.take_snapshot(epoch)
-                # 1,2,3 hop selection
-                time_tables = self.broadcast_msgs(config.num_msg)
-                print("broadcast", round(time.time() - last,2))
+                time_tables = self.broadcast_msgs(num_msg)
                 node_order = self.shuffle_nodes()
                 outs_conns = schedule.select_nodes(
                     self.nodes, 
                     self.ld, 
-                    config.num_msg, 
+                    num_msg, 
                     self.nh, 
                     self.selectors,
                     oracle,
@@ -279,13 +276,12 @@ class Experiment:
                     self.out_lim, 
                     network_state
                     )
-                print("select", round(time.time() - last, 2))
                 # update outs ins
                 ins_conn = self.update_conns(outs_conns)
                 # self.check()
                 self.update_selectors(outs_conns, ins_conn)
 
-            
+            print('\t\t [ epoch', epoch, 'end', round(time.time() - epoch_start, 2), ']')
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
 
     def check(self):

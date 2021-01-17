@@ -96,32 +96,14 @@ def print_bandits(bandits):
             print('node',i,'region',region,'peer',node, 'scores',bandit.ucb_table[a].score_list)
 
 
-def bandit_selection(bandit, W, H, X, network_state, outs_neighbors, out_lim):
-    bandit.update_times(W, X)
-
+def bandit_selection(bandit, W, H, X, network_state, outs_neighbors, out_lim, num_msg, max_time):
+    bandit.update_ucb_table(W, X, num_msg, max_time)
     valid_arms = get_pullable_arms(bandit.id, network_state)
-
     arms = bandit.pull_arms(valid_arms)
-    # for p in arms:
-        # if not is_connectable(bandit.id, p, network_state, outs_neighbors[bandit.id]):
-            # print('arm not pullable', bandit.id, p)
-            # print(outs_neighbors[bandit.id])
-            # print(outs_neighbors[p])
-            # print(network_state.num_in_conn[p])
-            # sys.exit(1)
-
     pulled_arms = bandit.get_pulled_arms()
-    
-    # for l in range(out_lim):
-        # a = arms[l]
-        # if (l, a) in pulled_arms:
-            # arm_not_pulled = bandit.get_num_not_pulled()
-            # print(bandit.id, 'pull an old arm', l, a)
-            # print(arm_not_pulled, '\n')
-
     return arms
 
-def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, pools):
+def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, num_msg, pools):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
 
@@ -130,9 +112,9 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
         for i in update_nodes:
             W, H = optimizers[i].matrix_factor()
 
-            X =  optimizers[i].construct_table()
+            X, max_time =  optimizers[i].construct_table()
             # argmin_top_peers = choose_best_neighbor(H)
-            peers = bandit_selection(bandits[i], W, H, X, network_state, outs_neighbors, out_lim)
+            peers = bandit_selection(bandits[i], W, H, X, network_state, outs_neighbors, out_lim, num_msg, max_time)
             # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
 
             # debug
@@ -147,9 +129,8 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
                     network_state.add_in_connection(i, p)
         print('selection', round(time.time()-start, 2))
         # print_bandits(bandits)
-        # sys.exit(2)
     else:
-        multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools)
+        multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_msg, pools)
 
     # choose random peers
     num_random = 0
@@ -167,7 +148,6 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, bandits, update
                     break
             outs_neighbors[i].append(w)
             network_state.add_in_connection(i, w)
-    print('num_random', num_random)
     return outs_neighbors
             
 
@@ -284,9 +264,9 @@ def get_times(peers, X, out_lim):
         times.append(X[k, p])
     return times 
 
-def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, pools):
+def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_msg, pools):
     args = []
-    W_, H_, X_ = {}, {}, {}
+    W_, H_ = {}, {}
     start = time.time()
     for i in range(len(update_nodes)):
         optimizer = optimizers[i] 
@@ -302,45 +282,28 @@ def multithread_matrix_factor(optimizers, bandits, update_nodes, network_state, 
         H_[i] = H
 
     for i in update_nodes:
-        X = optimizers[i].construct_table()
-        # if i == 32:
-            # print('schedule', X)
-        peers = bandit_selection(bandits[i], W_[i], H_[i], X, network_state, outs_neighbors, out_lim)
+        X, max_time = optimizers[i].construct_table()
+        peers = bandit_selection(
+                bandits[i], W_[i], H_[i], X, network_state, 
+                outs_neighbors, out_lim, num_msg, max_time)
         for p in peers:
             if is_connectable(i, p, network_state, outs_neighbors[i]):
                 outs_neighbors[i].append(p)
                 network_state.add_in_connection(i, p)
 
 
+# for p in arms:
+        # if not is_connectable(bandit.id, p, network_state, outs_neighbors[bandit.id]):
+            # print('arm not pullable', bandit.id, p)
+            # print(outs_neighbors[bandit.id])
+            # print(outs_neighbors[p])
+            # print(network_state.num_in_conn[p])
+            # sys.exit(1)
 
-       
-# futures = []
-    # for i in update_nodes:
-        # future = pools.submit(optimizers[i].matrix_factor(), None)
-        # futures.append(future)
     
-    # W_, H_, X_ = {}, {}, {}
-    # for i in range(len(futures)):
-        # W, H, X = futures[i].result()
-        # W_[i] = W
-        # H_[i] = H
-        # X_[i] = X
-
-    # for i in update_nodes:
-        # peers = bandit_selection(bandits[i], W_[i], H_[i], X_[i], network_state, outs_neighbors, out_lim)
-        # for p in peers:
-            # if is_connectable(i, p, network_state, outs_neighbors[i]):
-                # outs_neighbors[i].append(p)
-                # network_state.add_in_connection(i, p)
-
-
-# def init_matrix(X, L):
-    # A, B = None, None
-    # if config.init_nndsvd:
-        # A, B = nndsvd.initial_nndsvd(X, L)
-    # else:
-        # A, S, B = svds(X, L)
-        # I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
-        # A = A.dot(np.diag(I))
-        # B = np.transpose((B.T).dot(np.diag(S*I)))
-    # return A, B
+    # for l in range(out_lim):
+        # a = arms[l]
+        # if (l, a) in pulled_arms:
+            # arm_not_pulled = bandit.get_num_not_pulled()
+            # print(bandit.id, 'pull an old arm', l, a)
+            # print(arm_not_pulled, '\n')

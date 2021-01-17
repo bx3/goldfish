@@ -4,6 +4,11 @@ import numpy as np
 import random
 import math
 
+# debug
+def print_matrix(A):
+    for i in range(A.shape[0]):
+        print(list(np.round(A[i], 3)))
+
 class UcbEntry:
     def __init__(self, l, a, node_id):
         self.id = node_id
@@ -13,9 +18,11 @@ class UcbEntry:
         self.times = []
         self.shares = []
         self.score_list = []
+        self.max_time = 0
 
     def time_to_ucb_reward(self, t):
         re = (config.time_constant - t) / config.time_constant
+        # re = (self.max_time - t) / self.max_time
         if re < 0:
             print('need larger config.time_constant')
             print(re, t, config.time_constant)
@@ -25,7 +32,8 @@ class UcbEntry:
         return re
 
     # T is used for debug, indicating current epoch after addition
-    def update(self, t, share, T):
+    def update(self, t, share, T, max_time):
+        self.max_time = max_time
         self.n += 1
         self.times.append(t)
         self.shares.append(share)
@@ -77,6 +85,7 @@ class Bandit:
         self.num_node = num_node 
         self.alpha = config.alpha 
         self.is_init = True 
+        self.max_time = 0
         self.T = 0    # this T is used for ucb
         for i in range(num_region):
             for j in range(num_node):
@@ -94,7 +103,7 @@ class Bandit:
                     t = times[i]
                     if i != self.id and t != 0:
                         # selected that arm
-                        self.ucb_table[(l, i)].update(t, share, self.T)
+                        self.ucb_table[(l, i)].update(t, share, self.T, self.max_time)
 
     def hard_update(self, times, shares):
         origin = np.argmax(shares)
@@ -106,7 +115,7 @@ class Bandit:
             t = times[i]
             if i != self.id and t != 0:
                 # selected that arm
-                self.ucb_table[(origin, i)].update(t, 1, self.T)
+                self.ucb_table[(origin, i)].update(t, 1, self.T, self.max_time)
                 
 
     # one update per msg
@@ -117,23 +126,28 @@ class Bandit:
         else:
             self.soft_update(times, shares) 
 
-    def init_ucb_table(self, W, X):
-        num_msg = W.shape[0]
-        for i in range(num_msg):
-            obs = X[i]
-            shares = W[i]
-            self.update_one_msg(obs, shares)
-
     # always collect rewards from the last time
-    def update_times(self, W, X):
+    def update_ucb_table(self, W, X, num_msg, max_time):
+        if self.max_time < max_time:
+            self.max_time = max_time
         shares, observation = None, None
+        num_row = W.shape[0]
         if self.is_init:
-            self.init_ucb_table(W, X)
+            for i in range(W.shape[0]):
+                obs = X[i]
+                shares = W[i]
+                self.update_one_msg(obs, shares)
             self.is_init = False
         else:
-            shares = W[-1] # which sums to 1
-            observation = X[-1]
-            self.update_one_msg(observation, shares)
+            # print(self.id, 'update', num_msg)
+            for i in range(num_row - num_msg, num_row):
+                shares = W[i] # which sums to 1
+                observation = X[i]
+                self.update_one_msg(observation, shares)
+            # print(self.id)
+            # a, b = np.nonzero(X)
+            # print(list(zip(a, b)))
+            # print('')
 
 
     # masks if some arms cannot be pulled
@@ -148,22 +162,22 @@ class Bandit:
 
                     if config.is_ucb:
                         score = self.ucb_table[(i,j)].get_upper_bound(self.T)
+                        if best_score == None or score > best_score:
+                            best_score = score
+                            best_arm = [j]
+                        elif score == best_score:
+                            best_arm.append(j)
                     else:
                         score = self.ucb_table[(i,j)].get_lower_bound(self.T)
+                        scores.append(score)
+                        if best_score == None or score < best_score:
+                            best_score = score
+                            best_arm = [j]
+                        elif score == best_score:
+                            best_arm.append(j)
 
-                    scores.append(score)
-                    if best_score == None or score < best_score:
-                        best_score = score
-                        best_arm = [j]
-                    elif score == best_score:
-                        best_arm.append(j)
-
-            # print(best_score, best_arm, len(best_arm))
-            # print(scores)
-            # randomize equally good
             random.shuffle(best_arm)
             selected_arm = best_arm[0]
-            # print(scores)
 
             arms.append(selected_arm)
             valid_arms.remove(selected_arm)

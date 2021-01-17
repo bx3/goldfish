@@ -19,8 +19,15 @@ class Optimizer:
         self.window = window
 
     # slot can be either rel time table or abs time table
-    def append_time(self, slot):
-        self.table.append(list(slot.items()))
+    def append_time(self, slots, num_msg):
+        lines = [[] for _ in range(num_msg)] 
+        i = 0
+        for p, t_list in slots.items():
+            assert(len(t_list) == num_msg)
+            for i in range(num_msg):
+                lines[i].append((p, t_list[i])) 
+        for i in range(num_msg):
+            self.table.append(lines[i])
 
     def construct_table(self):
         X = np.zeros((self.window, self.N)) 
@@ -29,14 +36,14 @@ class Optimizer:
         max_time = 0 
         for slot in self.table[-self.window:]:
             for p, t in slot:
-                if t[0] < 0:
+                if t < 0:
                     print('time', t)
                     sys.exit(1)
-                X[i, p] = t[0] # t is a single element list, if num_msg is 1
-                if t[0] > max_time:
-                    max_time = t[0]
+                X[i, p] = t # t is a single element list, if num_msg is 1
+                if t > max_time:
+                    max_time = t
             i += 1
-        return X
+        return X, max_time
 
     # return matrix B, i.e. region-node matrix that containing real value score
     def matrix_factor(self):

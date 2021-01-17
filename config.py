@@ -5,11 +5,12 @@ reduce_link_ratio = 0.1
 # load conns state from prev experiment 
 is_load_conn = False 
 conn_path = 'inputs/conn.txt'
+num_thread = 10 
 
 # network config
-num_node = 100
-in_lim = 100 # 40 
-num_msg = 1 
+num_node = 200
+in_lim = 200 # 40 
+num_batch = 4  # one batch contains msg of window / num_batch
 
 # neigbor selection method
 use_matrix_completion = True 
@@ -18,14 +19,14 @@ use_2hop = False
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.005    # exit optimization difference
+tol_obj = 0.1    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
 init_nndsvd = True # use of nndsvd encourage sparsity, use hard update below
 
 # bandit
 alpha = 2 
-time_constant = 1500 
+time_constant = 2500 
 hard_update = True   # otherwise soft 
 is_ucb = True # ucb: argmax (c - t) / c, lcb: argmin t
 
@@ -65,8 +66,7 @@ sybil_update_priority = False
 # peers from other nodes.
 is_dynamic = False #True
 
-# num thread for heavy duty, not useful after experiment
-num_thread = 1 
+
 
 network_type = 'unhash'
 method = 'subset'

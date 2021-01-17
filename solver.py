@@ -9,7 +9,7 @@ import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation
 def run_pgd_nmf(i, slots, T, N, L):
-    X = construct_table(T, N, slots)
+    X, max_time = construct_table(T, N, slots)
     A_init, B_init = init_matrix(L, X)
     A_est, B_est = alternate_minimize(A_init, B_init, X, L)
     return A_est, B_est
@@ -37,30 +37,20 @@ def construct_table(T, N, slots):
     max_time = 0 
     for slot in slots:
         for p, t in slot:
-            if t[0] < 0:
-                print('time', t)
-                sys.exit(1)
-            X[i, p] = t[0] # t is a single element list, if num_msg is 1
-            if t[0] > max_time:
-                max_time = t[0]
+            X[i, p] = t
+            if max_time < t:
+                max_time = t
         i += 1
-    return X
+    return X, max_time
 
 # mask out non date entry, W is A, H is B
 def alternate_minimize(A_init, B_init, X, L):
-    # start = time.time()
+    start = time.time()
     A = A_init
     B = B_init
     I = X > 0 
     P = (A.dot(B) - X) * I 
-    # print('P')
-    # print_matrix(P)
-    # print(np.sum(I))
-    # print(np.sum(P < 0))
-    # sys.exit(2)
     num_row = A.shape[0]
-    # print('init A', A.shape)
-    # print_matrix(A)
 
     prev_opt = 9999
     opts = []

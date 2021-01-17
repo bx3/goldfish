@@ -30,6 +30,13 @@ def run():
     record_epochs = [int(i) for i in sys.argv[6:]]
     max_epoch = max(record_epochs) +1
 
+    num_region = out_lim
+    # num_msg = int(config.num_msg_per_region * num_region)
+    window = int(config.window_constant * out_lim * math.ceil(math.log(config.num_node))) # T > L log N
+    # window = int(math.ceil(window/float(num_msg))*float(num_msg))
+    num_msg = int(window / config.num_batch)
+
+
     [ node_delay, 
       node_hash, link_delay, 
       neighbor_set, IncomingLimit, 
@@ -68,13 +75,14 @@ def run():
             print("\033[93m" + '\tuse relative time'+ "\033[0m")
     else:
         print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
-
+    print("\033[93m" + 'num region '+ str(num_region) +  "\033[0m")
+    print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
+    print("\033[93m" + 'window '+ str(window) +  "\033[0m")
 
     if subcommand == 'run':
         start = time.time()
         adv_nodes = [i for i in range(config.num_adv)]
-        window = int(config.window_constant * out_lim * math.ceil(math.log(config.num_node))) # T > L log N
-        print('window', window)
+
         perigee = Experiment(
             node_hash,
             link_delay,
@@ -87,10 +95,8 @@ def run():
             window
             )
         perigee.init_graph(outs_neighbors)
-        if config.use_matrix_completion:
-            max_epoch = max_epoch + window
 
-        perigee.start(max_epoch, record_epochs)
+        perigee.start(max_epoch, record_epochs, num_msg)
     elif subcommand == 'complete_graph':
         if out_lim != config.num_node-1:
             print('Error. A complete graph need correct out lim')

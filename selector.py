@@ -184,17 +184,17 @@ class Selector:
             # pass
         return peers
 
-    def sort_neighbor_by_score( u, peers, table):
-        node = nodes[u]
-        scores = []
-        for v, time_list in node.views_hist.items():
-            if v in peers:
-                sorted_time_list = sorted(time_list)
-                scores.append((v, sorted_time_list[int(config.num_msg*9/10)-1]))
+    # def sort_neighbor_by_score( u, peers, table, num_msg):
+        # node = nodes[u]
+        # scores = []
+        # for v, time_list in node.views_hist.items():
+            # if v in peers:
+                # sorted_time_list = sorted(time_list)
+                # scores.append((v, sorted_time_list[int(num_msg*9/10)-1]))
         
-        sorted_peer_score = sorted(scores, key=lambda x: x[1])
-        sorted_peers = [i for i, s in sorted_peer_score]
-        return sorted_peers
+        # sorted_peer_score = sorted(scores, key=lambda x: x[1])
+        # sorted_peers = [i for i, s in sorted_peer_score]
+        # return sorted_peers
 
     def add_conn_2s(self, t):
         if t in self.conn_2s:
