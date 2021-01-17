@@ -8,8 +8,8 @@ conn_path = 'inputs/conn.txt'
 
 # network config
 num_node = 200
-in_lim = 200 
-num_msg = 100 
+in_lim = 200 # 40 
+num_msg = 1 
 
 # neigbor selection method
 use_matrix_completion = True 
@@ -38,9 +38,15 @@ new_weight = 1 - old_weight
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.1 # exit optimization difference
+tol_obj = 10 # 0.005    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
+init_nndsvd = True # use of nndsvd encourage sparsity, use hard update below
+
+# bandit
+alpha = 2 
+time_constant = 2500 
+hard_update = False   # otherwise soft 
 
 
 # attack
@@ -56,7 +62,7 @@ sybil_update_priority = False
 is_dynamic = False #True
 
 # num thread for heavy duty, not useful after experiment
-num_thread = 1
+num_thread = 1 
 
 network_type = 'unhash'
 method = 'subset'

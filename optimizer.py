@@ -7,7 +7,7 @@ import config
 import solver
 
 class Optimizer:
-    def __init__(self, node_id, num_node, num_region, window, pools):
+    def __init__(self, node_id, num_node, num_region, window):
         self.table = [] # raw relative time records, each element is a dict:peer -> time list
         self.abs_table = []
         
@@ -17,7 +17,6 @@ class Optimizer:
         self.T = window # time window that discard old time data
         self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time
         self.window = window
-        self.pools = None # pools
 
     # slot can be either rel time table or abs time table
     def append_time(self, slot):
@@ -42,7 +41,9 @@ class Optimizer:
     # return matrix B, i.e. region-node matrix that containing real value score
     def matrix_factor(self):
         # sample time from each table, to assemble the matrix X
-        X = self.construct_table()
+        # X = self.construct_table()
+        # if self.id == 32:
+            # print(self.id, X[np.nonzero(X)])
 
         # print(X.shape)
         # for i in range(X.shape[0]):
@@ -54,16 +55,13 @@ class Optimizer:
             # print(X[i])
         # sys.exit(2)
 
-        W, H = solver.run_pgd_nmf(self.L, X)
-        # self.print_matrix(W)
+        W, H = solver.run_pgd_nmf(self.id, self.table[-self.window:], self.window, self.N, self.L)
         
-        # sys.exit(2)
-
         # then use best neighbor methods to select get neighbors
         # out_conns = self.choose_best_neighbor(H)
 
         # tie is not randomized
-        sorted_conns = self.argsort_peers(H)
+        # sorted_conns = self.choose_best_neighbor(H) #argsort_peers
         # for i in range(sorted_conns.shape[0]):
             # if sorted_conns[i][0] != np.argmin(H[i]):
                 # print('num zero', sum(H[i] == 0))
@@ -76,20 +74,20 @@ class Optimizer:
                 # sys.exit(2)
 
         # print(sorted_conns)
-        return sorted_conns
+        return W, H
 
     def print_matrix(self, W):
         for i in range(W.shape[0]):
             print(list(W[i]))
 
-    def argsort_peers(self, B):
-        L_neighbors = np.argsort(B, axis=1)
+    def argsort_peers(self, H):
+        L_neighbors = np.argsort(H, axis=1)
         return L_neighbors
 
 
     # takes best neighbors from matrix B, currently using argmin, later using bandit
-    def choose_best_neighbor(self, B):
-        L_neighbors = np.argmin(B, axis=1)
+    def choose_best_neighbor(self, H):
+        L_neighbors = np.argmin(H, axis=1)
         #for i in range(len(L_neighbors)):
         #    print(list(np.round(B[i,:],2)))
         #print('L_neighbors', L_neighbors)

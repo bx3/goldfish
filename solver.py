@@ -5,11 +5,12 @@ from scipy.sparse.linalg import svds
 # import cvxpy as cvx
 import time
 import config
+import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation
-def run_pgd_nmf(L, X):
-    # init A_init, B_init with svd
-    A_init, B_init = init_matrix(X, L)
+def run_pgd_nmf(i, slots, T, N, L):
+    X = construct_table(T, N, slots)
+    A_init, B_init = init_matrix(L, X)
     A_est, B_est = alternate_minimize(A_init, B_init, X, L)
     return A_est, B_est
 
@@ -18,32 +19,36 @@ def print_matrix(A):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(X, L):
-    A, S, B = svds(X, L)
-    # print('A')
-    # print_matrix(A)
-    # mask = X > 0
-    # re = A.dot(np.diag(S)).dot(B)
-    # diff = re - X 
-    # print_matrix(diff)
-    # # print(np.sum(mask*(< 0)))
-    # print(np.sum(mask))
-    # sys.exit(2)
-
-
-    I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
-    A = A.dot(np.diag(I))
-
-    B = np.transpose((B.T).dot(np.diag(S*I)))
-    # print('B')
-    # print_matrix(B)
-    # sys.exit(2)
+def init_matrix(L, X):
+    A, B = None, None
+    if config.init_nndsvd:
+        A, B = nndsvd.initial_nndsvd(X, L)
+    else:
+        A, S, B = svds(X, L)
+        I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
+        A = A.dot(np.diag(I))
+        B = np.transpose((B.T).dot(np.diag(S*I)))
     return A, B
 
+def construct_table(T, N, slots):
+    X = np.zeros((T, N)) 
+    i = 0 # row
+
+    max_time = 0 
+    for slot in slots:
+        for p, t in slot:
+            if t[0] < 0:
+                print('time', t)
+                sys.exit(1)
+            X[i, p] = t[0] # t is a single element list, if num_msg is 1
+            if t[0] > max_time:
+                max_time = t[0]
+        i += 1
+    return X
 
 # mask out non date entry, W is A, H is B
 def alternate_minimize(A_init, B_init, X, L):
-    start = time.time()
+    # start = time.time()
     A = A_init
     B = B_init
     I = X > 0 
@@ -75,7 +80,6 @@ def alternate_minimize(A_init, B_init, X, L):
                 # A[i,:] = projection_simplex_pivot(A_tilde[i])
                 A[i,:] = projection_simplex_sort(A_tilde[i])
 
-            P = (A.dot(B) - X) * I 
             step_A += 1
             #norm_delta_A = LA.norm(A-prev_A, 'fro')
 
@@ -93,8 +97,9 @@ def alternate_minimize(A_init, B_init, X, L):
 
         P = (A.dot(B) - X) * I
         opt = 0.5 * LA.norm(P, 'fro')
-        opts.append(opt)
-        if prev_opt - opt < config.tol_obj:
+        # opts.append(opt)
+        diff = prev_opt - opt
+        if diff > 0 and diff < config.tol_obj: # and opt < 10
             # print('opt', prev_opt - opt)
             # print_matrix(A)
             # print_matrix(B)
@@ -103,12 +108,15 @@ def alternate_minimize(A_init, B_init, X, L):
             # print('out', epoch, 'A', step_A, 'B', step_B)
             break
         prev_opt = opt
-    # print(time.time() - start)
-    # print_matrix(A)
+    # print(time.time() - start, prev_opt - opt, opt)
+    # print('Matrix A')
+    # print_matrix( A)
+    # print('Matrix B')
     # print_matrix(B)
     # print(opts)
+    # print(prev_opt - opt)
     # sys.exit(2)
-    return A, B
+    return A, B 
 
 
 

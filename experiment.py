@@ -18,6 +18,7 @@ from optimizer import Optimizer
 from bandit import Bandit
 import initnetwork
 import math
+from multiprocessing.pool import Pool
 # from concurrent.futures import ThreadPoolExecutor
 
 
@@ -39,11 +40,14 @@ class Experiment:
         self.adversary = adversary.Adversary(sybils)
         self.snapshots = []
 
-        self.pools = None # ThreadPoolExecutor(max_workers=config.num_thread)
+        self.pools = Pool(processes=config.num_thread) 
+        # ThreadPoolExecutor(max_workers=config.num_thread)
 
         self.optimizers = {}
         self.bandits = {}
         self.window = window 
+
+        self.broad_nodes = []
 
         
 
@@ -76,11 +80,12 @@ class Experiment:
             peers = out_conns[i]
             for p in peers:
                 if i in out_conns[p]:
-                    print(i, self.selectors[i].desc_conn)
-                    print(p, self.selectors[p].desc_conn)
+                    print(i, out_conns[i])
+                    print(p, out_conns[p])
+                    print('')
                     num_double_conn += 1
         if num_double_conn> 0:
-            print("num_double_conn > 0")
+            print("num_double_conn > 0", num_double_conn)
 
         nodes = self.nodes
         # for i, peers in out_conns.items():
@@ -111,7 +116,6 @@ class Experiment:
                 self.num_node,
                 self.out_lim,
                 self.window,
-                self.pools
             )
 
     def init_bandits(self):
@@ -119,7 +123,7 @@ class Experiment:
             self.bandits[i] = Bandit(
                 i,
                 self.out_lim,
-                self.num_node - 1 # bandit cannot select itself
+                self.num_node 
             )
 
     def init_graph(self, outs_neighbors):
@@ -177,8 +181,7 @@ class Experiment:
                 broad_node = np.random.randint(self.num_node)
             else:
                 broad_node = comm_network.get_broadcast_node(self.nh)
-
-
+            self.broad_nodes.append(broad_node)
             comm_network.broadcast_msg(broad_node, self.nodes, self.ld, self.nh, time_tables, abs_time_tables)
         
         return time_tables, abs_time_tables
@@ -211,7 +214,6 @@ class Experiment:
     def start(self, max_epoch, record_epochs):
         last = time.time()
         network_state = NetworkState(self.num_node, self.in_lim) 
-        print("max_epoch", max_epoch)
         for epoch in range(max_epoch):
             print("\t\tepoch", epoch)
             
@@ -222,7 +224,6 @@ class Experiment:
             # alternate optimizing
             if config.use_matrix_completion:
                 if epoch-self.window in record_epochs:
-                    print(epoch-self.window)
                     self.take_snapshot(epoch-self.window)
 
                 time_tables, abs_time_tables = self.broadcast_msgs(1)
