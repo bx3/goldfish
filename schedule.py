@@ -291,7 +291,6 @@ def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, 
 
     results = {}
     manager.drain_workers(results)
-    print('multiprocess', round(time.time() - start, 2))       
 
     # assert(len(results) == len(update_nodes))
     # for i in range(len(update_nodes)):
@@ -303,9 +302,13 @@ def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, 
         # # optimizers[i].store_WH(W, H)
 
     for i in update_nodes:
-        # opt = optimizers[i]
         st = sparse_tables[i]
         W, H = results[i]
+
+        print(i)
+        print_matrix(H)
+        print()
+
         X, max_time = solver.construct_table(st.N, st.table[-st.window:])
         # select arms
         peers = bandit_selection(

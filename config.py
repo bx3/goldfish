@@ -19,12 +19,17 @@ use_2hop = False
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.01    # exit optimization difference
+tol_obj = 0.1    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
+# init
 init_nndsvd = True # use of nndsvd encourage sparsity for both W and H 
 nndsvd_seed = None # if use nndsvd, seed can be set for consistency
-feedback_WH = False 
+# feedback
+feedback_WH = True 
+W_noise_mean = 0.1
+W_noise_std = 0.1
+H_noise_std_ratio = 4
 
 # bandit
 alpha = 2 

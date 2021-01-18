@@ -41,7 +41,9 @@ def worker(worker_id, sink, task_source, node_list, num_node, num_region, window
             break
         node, sparse_table, new_msg_start = task
         optimizers[node].matrix_factor(sparse_table, new_msg_start)
-        sink.send((node, optimizers[node].W, None)) # node, W, H
+        print(node, 'before send')
+        sink.send((node, optimizers[node].W, optimizers[node].H)) # node, W, H  
+        print(node, 'after send')
         time.sleep(0.15) # time for msg broadcasting in next step
 
 
@@ -55,11 +57,14 @@ class Optimizer:
         self.window = window
         self.H = None
         self.W = None
+        self.is_init = True
 
     def matrix_factor(self, sparse_table, new_msg_start):
         X, max_time = solver.construct_table(self.N, sparse_table)
         A, B = None, None
-        if not config.feedback_WH: 
+        if not config.feedback_WH or self.is_init: 
+            self.is_init = False
+            print(self.id, 'init')
             if config.init_nndsvd:
                 A, B = nndsvd.initial_nndsvd(X, self.L, config.nndsvd_seed)
             else:
@@ -68,7 +73,17 @@ class Optimizer:
                 A = A.dot(np.diag(I))
                 B = np.transpose((B.T).dot(np.diag(S*I)))
         else:
-            pass
+            print(self.id, 'feedback')
+            shape = (self.T, self.L)
+            A = np.zeros(shape)
+            A[:new_msg_start] = self.W[:new_msg_start] + np.random.normal(
+                        config.W_noise_mean, 
+                        config.W_noise_std, size=(new_msg_start, self.L)) 
+            A[new_msg_start:] = np.ones((self.T-new_msg_start, self.L))
+
+            H_mean = np.mean(self.H)
+            H_std = np.std(self.H)
+            B = self.H + np.random.normal(H_mean, H_std/config.H_noise_std_ratio, size=(self.L, self.N))
 
         self.W, self.H = solver.alternate_minimize(A, B, X, self.L)
 

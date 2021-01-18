@@ -56,6 +56,7 @@ class Manager:
                 node_id, W, H = result
                 results[node_id] = (W, H)
                 self.pend_counters[worker_id] -= 1
+                print(self.pend_counters[worker_id])
             assert(self.pend_counters[worker_id] == 0)
 
         while len(closed_workers) > 0:
