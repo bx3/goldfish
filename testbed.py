@@ -97,6 +97,7 @@ def run():
         perigee.init_graph(outs_neighbors)
 
         perigee.start(max_epoch, record_epochs, num_msg)
+        perigee.stop()
     elif subcommand == 'complete_graph':
         if out_lim != config.num_node-1:
             print('Error. A complete graph need correct out lim')

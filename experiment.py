@@ -19,9 +19,54 @@ from optimizer import SparseTable
 from bandit import Bandit
 import initnetwork
 import math
-from multiprocessing.pool import Pool
-# from concurrent.futures import ThreadPoolExecutor
+import optimizer
+import multiprocessing
+# from multiprocessing.pool import Pool
 
+# from concurrent.futures import ThreadPoolExecutor
+def get_worker_id(node_id, num_worker):
+    return node_id % num_worker
+
+class Manager:
+    def __init__(self, num_worker):
+        self.num_worker = num_worker
+        self.processes = []
+        self.send_handlers = []
+        self.pend_counters = [0 for _ in range(num_worker)]
+        self.recv_handlers = []
+
+    def assign_task(self, node_id, sparse_table, new_msg_start):
+        worker_id = get_worker_id(node_id, len(self.processes))
+        arg = (node_id, sparse_table, new_msg_start)
+        self.send_handlers[worker_id].send(arg)
+        self.pend_counters[worker_id] += 1
+
+    # results is dict with key is node id, value is result
+    def drain_workers(self, results):
+        closed_workers = []
+        for worker_id in range(self.num_worker):
+            while self.pend_counters[worker_id] > 0:
+                result = self.recv_handlers[worker_id].recv()
+                if result == None:
+                    print('worker', worker_id, 'close')
+                    closed_workers.append(worker_id)
+                    assert(self.pend_counters[worker_id] == 0)
+                    break 
+                        
+                node_id, W, H = result
+                results[node_id] = (W, H)
+                self.pend_counters[worker_id] -= 1
+            assert(self.pend_counters[worker_id] == 0)
+
+        while len(closed_workers) > 0:
+            worker_id = closed_workers.pop(-1)
+            self.close_handlers(worker_id)
+
+    def close_handlers(self, worker_id):
+        self.send_handlers[worker_id].close()
+        del self.send_handlers[worker_id]
+        self.recv_handlers[worker_id].close()
+        del self.recv_handlers[worker_id]
 
 class Experiment:
     def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, name, sybils, window):
@@ -41,7 +86,11 @@ class Experiment:
         self.adversary = adversary.Adversary(sybils)
         self.snapshots = []
 
-        self.pools = Pool(processes=config.num_thread) 
+        # self.pools = Pool(processes=config.num_thread) 
+        self.manager = Manager(config.num_thread)
+        # self.processes = []
+        # self.send_handlers = []
+        # self.recv_handlers = []
         # ThreadPoolExecutor(max_workers=config.num_thread)
 
         self.optimizers = {}
@@ -51,7 +100,38 @@ class Experiment:
 
         self.broad_nodes = []
 
-        
+        self.init_workers()
+
+    def init_workers(self):
+        worker_loads = defaultdict(list)
+        for i in range(self.num_node):
+            worker_id = get_worker_id(i, config.num_thread)
+            worker_loads[worker_id].append(i)
+
+        for worker_id in range(config.num_thread):
+            task_recv, task_send = multiprocessing.Pipe(False)
+            result_recv, result_send = multiprocessing.Pipe(False) 
+            p = multiprocessing.Process(
+                    target=optimizer.worker, 
+                    args=(
+                        worker_id, 
+                        result_send, 
+                        task_recv, 
+                        worker_loads[worker_id], 
+                        self.num_node, 
+                        self.out_lim,
+                        self.window
+                    ))
+            self.manager.processes.append(p)
+            self.manager.recv_handlers.append(result_recv)
+            self.manager.send_handlers.append(task_send)
+
+        for p in self.manager.processes:
+            p.start()
+
+    def terminate_workers(self):
+        for p in self.processes:
+            p.join()
 
     # generate networkx graph instance
     def construct_graph(self):
@@ -266,7 +346,7 @@ class Experiment:
                         self.out_lim, 
                         network_state,
                         num_msg,
-                        self.pools
+                        self.manager
                         )
                 else:
                     # random connections
@@ -303,6 +383,15 @@ class Experiment:
 
             print('\t\t [ epoch', epoch, 'end', round(time.time() - epoch_start, 2), ']')
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
+
+    def stop(self):
+        for worker_id in self.manager.num_worker:
+            self.send_handlers[worker_id].send(None)
+        result = {}
+        self.manager.drain_workers(result)
+
+        for p in self.processes:
+            p.join()
 
     def check(self):
         for i in range(self.num_node):

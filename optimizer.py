@@ -5,6 +5,8 @@ import copy
 import time
 import config
 import solver
+import nndsvd
+from scipy.sparse.linalg import svds
 
 class SparseTable:
     def __init__(self, node_id, num_node, num_region, window):
@@ -24,38 +26,52 @@ class SparseTable:
         for i in range(num_msg):
             self.table.append(lines[i])
 
+def worker(worker_id, sink, task_source, node_list, num_node, num_region, window):
+    optimizers = {}
+    for i in node_list:
+        optimizers[i] = Optimizer(i, num_node, num_region, window)
+    # keep working until done
+    while True:
+        task = task_source.recv()
+        # all jobs finish
+        if task == None:
+            sink.send(None)
+            sink.close()
+            task_source.close()
+            break
+        node, sparse_table, new_msg_start = task
+        optimizers[node].matrix_factor(sparse_table, new_msg_start)
+        sink.send((node, optimizers[node].W, None)) # node, W, H
+        time.sleep(0.15) # time for msg broadcasting in next step
+
+
 class Optimizer:
     def __init__(self, node_id, num_node, num_region, window):
-        self.table = [] # raw relative time records, each element is a dict:peer -> time list
-        
         self.id = node_id
         self.N = num_node
         self.L = num_region # region = num out degree
         self.T = window # time window that discard old time data
-        self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time
-        self.window = window
-        self.prev_H = None
-        self.prev_W = None
 
-    # slot can be either rel time table or abs time table
-    def append_time(self, slots, num_msg):
-        lines = [[] for _ in range(num_msg)] 
-        i = 0
-        for p, t_list in slots.items():
-            assert(len(t_list) == num_msg)
-            for i in range(num_msg):
-                lines[i].append((p, t_list[i])) 
-        for i in range(num_msg):
-            self.table.append(lines[i])
-    
-    def store_WH(self, W, H):
-        if config.use_prev_WH:
-            self.prev_W = W
-            self.prev_H = H
+        self.window = window
+        self.H = None
+        self.W = None
+
+    def matrix_factor(self, sparse_table, new_msg_start):
+        X, max_time = solver.construct_table(self.N, sparse_table)
+        A, B = None, None
+        if not config.feedback_WH: 
+            if config.init_nndsvd:
+                A, B = nndsvd.initial_nndsvd(X, self.L, config.nndsvd_seed)
+            else:
+                A, S, B = svds(X, L)
+                I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
+                A = A.dot(np.diag(I))
+                B = np.transpose((B.T).dot(np.diag(S*I)))
         else:
-            self.prev_W = None
-            self.prev_H = None
-        
+            pass
+
+        self.W, self.H = solver.alternate_minimize(A, B, X, self.L)
+
     # return matrix B, i.e. region-node matrix that containing real value score
     # def matrix_factor(self):
         # sample time from each table, to assemble the matrix X

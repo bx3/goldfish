@@ -5,7 +5,7 @@ reduce_link_ratio = 0.1
 # load conns state from prev experiment 
 is_load_conn = False 
 conn_path = 'inputs/conn.txt'
-num_thread = 10
+num_thread = 10 # divide num nodes, so works are spread evenly
 
 # network config
 num_node = 200
@@ -24,7 +24,7 @@ num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
 init_nndsvd = True # use of nndsvd encourage sparsity for both W and H 
 nndsvd_seed = None # if use nndsvd, seed can be set for consistency
-use_prev_WH = False 
+feedback_WH = False 
 
 # bandit
 alpha = 2 
