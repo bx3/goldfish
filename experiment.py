@@ -15,6 +15,7 @@ import numpy as np
 import comm_network
 import random
 from optimizer import Optimizer
+from optimizer import SparseTable
 from bandit import Bandit
 import initnetwork
 import math
@@ -44,6 +45,7 @@ class Experiment:
         # ThreadPoolExecutor(max_workers=config.num_thread)
 
         self.optimizers = {}
+        self.sparse_tables = {}
         self.bandits = {}
         self.window = window 
 
@@ -117,6 +119,14 @@ class Experiment:
                 self.out_lim,
                 self.window,
             )
+    def init_sparse_tables(self):
+        for i in range(self.num_node):
+            self.sparse_tables[i] = SparseTable(
+                i,
+                self.num_node,
+                self.out_lim,
+                self.window,
+            )
 
     def init_bandits(self):
         for i in range(self.num_node):
@@ -140,6 +150,7 @@ class Experiment:
         ins_conns = self.update_ins_conns()
         self.init_selectors(outs_neighbors, ins_conns)
         self.init_optimizers()
+        self.init_sparse_tables()
         self.init_bandits()
 
         # for i in range(config.num_node):
@@ -211,6 +222,14 @@ class Experiment:
             else:
                 self.optimizers[i].append_time(time_table[i])
 
+    def accumulate_table(self, time_table, abs_time_tables, num_msg):
+        for i in range(self.num_node):
+            if config.use_abs_time:
+                self.sparse_tables[i].append_time(abs_time_tables[i], num_msg)
+            else:
+                self.sparse_tables[i].append_time(time_table[i])
+
+
     def start(self, max_epoch, record_epochs, num_msg):
         network_state = NetworkState(self.num_node, self.in_lim) 
         for epoch in range(max_epoch):
@@ -228,8 +247,8 @@ class Experiment:
                     return
 
                 time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
-                self.accumulate_optimizer(time_tables, abs_time_tables, num_msg)
-
+                # self.accumulate_optimizer(time_tables, abs_time_tables, num_msg)
+                self.accumulate_table(time_tables, abs_time_tables, num_msg)
                 if epoch*num_msg >= self.window:
                     # matrix factorization
                     node_order = self.shuffle_nodes()
@@ -238,6 +257,7 @@ class Experiment:
                         self.ld, 
                         self.nh, 
                         self.optimizers,
+                        self.sparse_tables,
                         self.bandits,
                         node_order, 
                         time_tables, 

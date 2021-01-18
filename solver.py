@@ -7,10 +7,10 @@ import time
 import config
 import nndsvd
 
-# A is W, B is H, k is rank which is L, X is observation
-def run_pgd_nmf(i, slots, T, N, L):
-    X, max_time = construct_table(T, N, slots)
-    A_init, B_init = init_matrix(L, X)
+# A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
+def run_pgd_nmf(i, slots, N, L, prev_H, new_msgs_ind):
+    X, max_time = construct_table(N, slots)
+    A_init, B_init = init_matrix(L, X, prev_H, new_msgs_ind)
     A_est, B_est = alternate_minimize(A_init, B_init, X, L)
     return A_est, B_est
 
@@ -19,18 +19,22 @@ def print_matrix(A):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(L, X):
+def init_matrix(L, X, prev_H, new_msgs_ind):
     A, B = None, None
-    if config.init_nndsvd:
-        A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
+    if prev_H == None:
+        if config.init_nndsvd:
+            A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
+        else:
+            A, S, B = svds(X, L)
+            I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
+            A = A.dot(np.diag(I))
+            B = np.transpose((B.T).dot(np.diag(S*I)))
+        return A, B
     else:
-        A, S, B = svds(X, L)
-        I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
-        A = A.dot(np.diag(I))
-        B = np.transpose((B.T).dot(np.diag(S*I)))
-    return A, B
+        pass
 
-def construct_table(T, N, slots):
+def construct_table(N, slots):
+    T = len(slots)
     X = np.zeros((T, N)) 
     i = 0 # row
 

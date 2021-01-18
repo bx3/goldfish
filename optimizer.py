@@ -6,10 +6,27 @@ import time
 import config
 import solver
 
+class SparseTable:
+    def __init__(self, node_id, num_node, num_region, window):
+        self.table = []
+        self.id = node_id
+        self.N = num_node
+        self.L = num_region # region = num out degree
+        self.window = window # time window that discard old time data
+
+    def append_time(self, slots, num_msg):
+        lines = [[] for _ in range(num_msg)] 
+        i = 0
+        for p, t_list in slots.items():
+            assert(len(t_list) == num_msg)
+            for i in range(num_msg):
+                lines[i].append((p, t_list[i])) 
+        for i in range(num_msg):
+            self.table.append(lines[i])
+
 class Optimizer:
     def __init__(self, node_id, num_node, num_region, window):
         self.table = [] # raw relative time records, each element is a dict:peer -> time list
-        self.abs_table = []
         
         self.id = node_id
         self.N = num_node
@@ -17,6 +34,8 @@ class Optimizer:
         self.T = window # time window that discard old time data
         self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time
         self.window = window
+        self.prev_H = None
+        self.prev_W = None
 
     # slot can be either rel time table or abs time table
     def append_time(self, slots, num_msg):
@@ -28,25 +47,17 @@ class Optimizer:
                 lines[i].append((p, t_list[i])) 
         for i in range(num_msg):
             self.table.append(lines[i])
-
-    # def construct_table(self):
-        # X = np.zeros((self.window, self.N)) 
-        # i = 0 # row
-
-        # max_time = 0 
-        # for slot in self.table[-self.window:]:
-            # for p, t in slot:
-                # if t < 0:
-                    # print('time', t)
-                    # sys.exit(1)
-                # X[i, p] = t # t is a single element list, if num_msg is 1
-                # if t > max_time:
-                    # max_time = t
-            # i += 1
-        # return X, max_time
-
+    
+    def store_WH(self, W, H):
+        if config.use_prev_WH:
+            self.prev_W = W
+            self.prev_H = H
+        else:
+            self.prev_W = None
+            self.prev_H = None
+        
     # return matrix B, i.e. region-node matrix that containing real value score
-    def matrix_factor(self):
+    # def matrix_factor(self):
         # sample time from each table, to assemble the matrix X
         # X = self.construct_table()
         # if self.id == 32:
@@ -62,7 +73,7 @@ class Optimizer:
             # print(X[i])
         # sys.exit(2)
 
-        W, H = solver.run_pgd_nmf(self.id, self.table[-self.window:], self.window, self.N, self.L)
+        # W, H = solver.run_pgd_nmf(self.id, self.table[-self.window:], self.window, self.N, self.L)
         # self.print_matrix(W)
         # print('')
         # then use best neighbor methods to select get neighbors
@@ -82,25 +93,25 @@ class Optimizer:
                 # sys.exit(2)
 
         # print(sorted_conns)
-        return W, H
+        # return W, H
 
-    def print_matrix(self, W):
-        for i in range(W.shape[0]):
-            print(list(W[i]), sum(W[i]))
+    # def print_matrix(self, W):
+        # for i in range(W.shape[0]):
+            # print(list(W[i]), sum(W[i]))
 
-    def argsort_peers(self, H):
-        L_neighbors = np.argsort(H, axis=1)
-        return L_neighbors
+    # def argsort_peers(self, H):
+        # L_neighbors = np.argsort(H, axis=1)
+        # return L_neighbors
 
 
     # takes best neighbors from matrix B, currently using argmin, later using bandit
-    def choose_best_neighbor(self, H):
-        L_neighbors = np.argmin(H, axis=1)
-        #for i in range(len(L_neighbors)):
-        #    print(list(np.round(B[i,:],2)))
-        #print('L_neighbors', L_neighbors)
-        outs_conn = set(L_neighbors)
-        return list(outs_conn)
+    # def choose_best_neighbor(self, H):
+        # L_neighbors = np.argmin(H, axis=1)
+        # #for i in range(len(L_neighbors)):
+        # #    print(list(np.round(B[i,:],2)))
+        # #print('L_neighbors', L_neighbors)
+        # outs_conn = set(L_neighbors)
+        # return list(outs_conn)
 
 
 
