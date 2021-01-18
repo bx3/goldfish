@@ -10,7 +10,7 @@ num_thread = 10 # divide num nodes, so works are spread evenly
 # network config
 num_node = 200
 in_lim = 200 # 40 
-num_batch = 4  # one batch contains msg of window / num_batch
+num_batch = 2  # one batch contains msg of window / num_batch
 
 # neigbor selection method
 use_matrix_completion = True 

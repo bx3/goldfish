@@ -385,12 +385,12 @@ class Experiment:
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
 
     def stop(self):
-        for worker_id in self.manager.num_worker:
-            self.send_handlers[worker_id].send(None)
+        for worker_id in range(self.manager.num_worker):
+            self.manager.send_handlers[worker_id].send(None)
         result = {}
         self.manager.drain_workers(result)
 
-        for p in self.processes:
+        for p in self.manager.processes:
             p.join()
 
     def check(self):
