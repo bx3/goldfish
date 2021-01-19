@@ -34,8 +34,8 @@ class Optimizer:
         self.T = window # time window that discard old time data
         self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time
         self.window = window
-        self.prev_H = None
-        self.prev_W = None
+        self.H = None
+        self.W = None
 
     # slot can be either rel time table or abs time table
     def append_time(self, slots, num_msg):
@@ -49,12 +49,12 @@ class Optimizer:
             self.table.append(lines[i])
     
     def store_WH(self, W, H):
-        if config.use_prev_WH:
-            self.prev_W = W
-            self.prev_H = H
+        if config.feedback_WH:
+            self.W = W
+            self.H = H
         else:
-            self.prev_W = None
-            self.prev_H = None
+            self.W = None
+            self.H = None
         
     # return matrix B, i.e. region-node matrix that containing real value score
     # def matrix_factor(self):

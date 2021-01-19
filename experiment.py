@@ -232,7 +232,9 @@ class Experiment:
 
     def start(self, max_epoch, record_epochs, num_msg):
         network_state = NetworkState(self.num_node, self.in_lim) 
-        for epoch in range(max_epoch):
+        total_msg = 0
+        time_tables = None
+        for epoch in range(max_epoch+self.window):
             print('\t\t < epoch', epoch, 'start>')
             epoch_start = time.time()
             
@@ -241,15 +243,22 @@ class Experiment:
             network_state.reset(self.num_node, self.in_lim)
 
             if config.use_matrix_completion:
-                if epoch in record_epochs:
-                    self.take_snapshot(epoch)
-                if epoch > max_epoch:
+                if epoch-self.window in record_epochs:
+                    self.take_snapshot(epoch-self.window)
+                if epoch-self.window > max_epoch:
                     return
 
-                time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
-                # self.accumulate_optimizer(time_tables, abs_time_tables, num_msg)
-                self.accumulate_table(time_tables, abs_time_tables, num_msg)
-                if epoch*num_msg >= self.window:
+                if epoch < self.window:
+                    time_tables, abs_time_tables = self.broadcast_msgs(1)
+                    self.accumulate_table(time_tables, abs_time_tables, 1)
+                    total_msg += 1
+                else:
+                    time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
+                    self.accumulate_table(time_tables, abs_time_tables, num_msg)
+                    total_msg += num_msg
+
+                
+                if total_msg >= self.window:
                     # matrix factorization
                     node_order = self.shuffle_nodes()
                     outs_conns = schedule.select_nodes_by_matrix_completion(

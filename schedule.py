@@ -113,7 +113,7 @@ def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, sparse_tables, 
             opt = optimizers[i]
             st = sparse_tables[i]
             W, H = solver.run_pgd_nmf(i, st.table[-st.window:], 
-                    st.N, st.L, opt.prev_H, st.window-num_msg)
+                    st.N, st.L, opt.W, opt.H, st.window-num_msg)
             X, max_time = solver.construct_table(st.N, st.table[-st.window:])
             opt.store_WH(W, H)
             
@@ -281,7 +281,7 @@ def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, 
     for i in range(len(update_nodes)):
         opt = optimizers[i]
         st = sparse_tables[i]
-        arg = (i, st.table[-st.window:], st.N, st.L, opt.prev_H, st.window-num_msg)
+        arg = (i, st.table[-st.window:], st.N, st.L, opt.W, opt.H, st.window-num_msg)
         args.append(arg)
 
     results = pools.starmap(solver.run_pgd_nmf, args)
@@ -289,10 +289,11 @@ def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, 
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
         W, H = results[i]
-        # print(i)
-        # print_matrix(H)
-        # print('')
         W_[i] = W
+        # print(i, 'H max', np.max(H), 'num zero', np.count_nonzero(H==0))
+        # print_matrix(H)
+        # print(i, 'W max', np.max(W), 'num zero', np.count_nonzero(W==0))
+        # print_matrix(W)
         optimizers[i].store_WH(W, H)
 
     for i in update_nodes:
