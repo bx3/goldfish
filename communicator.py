@@ -4,7 +4,8 @@ import random
 
 class Note:
     def __init__(self, nid, n_delay, in_lim, out_lim, init_outs): 
-        self.ins = set() 
+        self.ins =set()
+        self.ordered_outs = init_outs
         self.outs = set(init_outs) 
     
         self.id = nid

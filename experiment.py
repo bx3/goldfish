@@ -20,8 +20,6 @@ from bandit import Bandit
 import initnetwork
 import math
 from multiprocessing.pool import Pool
-# from concurrent.futures import ThreadPoolExecutor
-
 
 class Experiment:
     def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, name, sybils, window):
@@ -42,16 +40,16 @@ class Experiment:
         self.snapshots = []
 
         self.pools = Pool(processes=config.num_thread) 
-        # ThreadPoolExecutor(max_workers=config.num_thread)
 
         self.optimizers = {}
         self.sparse_tables = {}
         self.bandits = {}
         self.window = window 
 
-        self.broad_nodes = []
+        self.broad_nodes = [] # hist of broadcasting node
 
-        
+        # log setting
+        self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
 
     # generate networkx graph instance
     def construct_graph(self):
@@ -90,14 +88,13 @@ class Experiment:
             print("num_double_conn > 0", num_double_conn)
 
         nodes = self.nodes
-        # for i, peers in out_conns.items():
         for i in range(len(out_conns)):
             peers = out_conns[i]
             if len(set(peers)) != len(peers):
                 print('Error. Repeat peer')
                 print(i, peers)
                 sys.exit(1)
-
+            nodes[i].ordered_outs = peers.copy()
             nodes[i].outs = set(peers)
             nodes[i].ins.clear()
             nodes[i].recv_time = 0
@@ -108,7 +105,7 @@ class Experiment:
     def get_outs_neighbors(self):
         out_neighbor = np.zeros((self.num_node, self.out_lim))
         for i in range(self.num_node):
-            out_neighbor[i] = list(self.nodes[i].outs)
+            out_neighbor[i] = self.nodes[i].ordered_outs
         return out_neighbor
 
     def init_optimizers(self):
@@ -137,7 +134,6 @@ class Experiment:
             )
 
     def init_graph(self, outs_neighbors):
-
         for i in range(self.num_node):
             node_delay = self.nd[i]
             self.nodes[i] = Note(
@@ -164,8 +160,8 @@ class Experiment:
         G = self.construct_graph()
         outs_neighbors = self.get_outs_neighbors()
 
-        structure_name =  self.outdir + "/" + 'structure_' +  str(epoch) + '.txt'
-        writefiles.write_conn(structure_name, outs_neighbors)
+        # structure_name =  self.outdir + "/" + 'structure_' +  str(epoch) + '.txt'
+        # writefiles.write_conn(structure_name, outs_neighbors)
 
         writefiles.write(outpath, G, self.nd, outs_neighbors, self.num_node)
 
@@ -234,6 +230,8 @@ class Experiment:
         network_state = NetworkState(self.num_node, self.in_lim) 
         total_msg = 0
         time_tables = None
+        if not config.use_matrix_completion:
+            self.window = 0
         for epoch in range(max_epoch+self.window):
             print('\t\t < epoch', epoch, 'start>')
             epoch_start = time.time()
@@ -246,20 +244,15 @@ class Experiment:
                 if epoch-self.window in record_epochs:
                     self.take_snapshot(epoch-self.window)
                 if epoch-self.window > max_epoch:
-                    return
+                    break 
 
-                if epoch < self.window:
-                    time_tables, abs_time_tables = self.broadcast_msgs(1)
-                    self.accumulate_table(time_tables, abs_time_tables, 1)
-                    total_msg += 1
-                else:
+                if total_msg >= self.window:
                     time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
                     self.accumulate_table(time_tables, abs_time_tables, num_msg)
                     total_msg += num_msg
 
-                
-                if total_msg >= self.window:
                     # matrix factorization
+                    print(epoch, 'start mf')
                     node_order = self.shuffle_nodes()
                     outs_conns = schedule.select_nodes_by_matrix_completion(
                         self.nodes, 
@@ -275,10 +268,17 @@ class Experiment:
                         self.out_lim, 
                         network_state,
                         num_msg,
-                        self.pools
+                        self.pools,
+                        self.printer,
+                        epoch
                         )
+                    structure_name =  self.outdir + "/" + 'structure_' +  str(epoch-self.window) + '.txt'
+                    writefiles.write_conn(structure_name, outs_conns)
                 else:
                     # random connections
+                    time_tables, abs_time_tables = self.broadcast_msgs(1)
+                    self.accumulate_table(time_tables, abs_time_tables, 1)
+                    total_msg += 1
                     outs_conns = initnetwork.generate_random_outs_conns(
                         self.out_lim, 
                         self.in_lim, 
@@ -290,7 +290,7 @@ class Experiment:
                 # 1,2,3 hop selection
                 if epoch in record_epochs:
                     self.take_snapshot(epoch)
-                time_tables = self.broadcast_msgs(num_msg)
+                time_tables, abs_time_table = self.broadcast_msgs(num_msg)
                 node_order = self.shuffle_nodes()
                 outs_conns = schedule.select_nodes(
                     self.nodes, 
@@ -312,6 +312,8 @@ class Experiment:
 
             print('\t\t [ epoch', epoch, 'end', round(time.time() - epoch_start, 2), ']')
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
+        self.printer.print_WH()
+        self.printer.print_ucb()
 
     def check(self):
         for i in range(self.num_node):
@@ -347,6 +349,93 @@ class Experiment:
                     # w.write(str(delay) + '  ')
                 # w.write('\n')
 
+# used for debug
+class Printer:
+    def __init__(self, n, r, filename, ucb_filename):
+        self.H_mean_list = defaultdict(list) 
+        self.H_max_list = defaultdict(list)
+        self.H_nz_list = defaultdict(list)
+
+        self.W_mean_list = defaultdict(list)
+        self.W_max_list = defaultdict(list)
+        self.W_nz_list = defaultdict(list)
+        self.opt_list = defaultdict(list)
+        self.H_list = defaultdict(list)
+
+        self.num_node = n
+        self.num_region = r
+        self.log_solver_filename = filename
+        self.log_ucb_filename = ucb_filename
+
+        self.bandits = defaultdict(list)
+
+    def update_WH(self, i, W, H, opt):
+        self.H_list[i].append(H.copy())
+        self.H_mean_list[i].append(round(np.mean(H), 2))
+        self.H_max_list[i].append(round(np.max(H), 2))
+        self.H_nz_list[i].append(np.count_nonzero(H==0))
+        self.W_mean_list[i].append(round(np.mean(W), 2))
+        self.W_max_list[i].append(round(np.max(W), 2))
+        self.W_nz_list[i].append(np.count_nonzero(W>(1.0/self.num_region)))
+        self.opt_list[i].append(round(opt, 2))
+
+    def update_ucb(self, bandit, arms, epoch):
+        num_msgs = bandit.num_msgs
+        stat = [epoch, arms, num_msgs.copy()]
+        ucbs = {}
+        j = 0
+        for a in arms:
+            ucb_entry = bandit.ucb_table[(j,a)]
+            scores = list(np.round(ucb_entry.score_list, 2))
+            times = list(np.round(ucb_entry.times))
+            # shares = list(np.round(ucb_entry.shares))
+            times_index = list(np.round(ucb_entry.times_index))
+            T_list = list(np.round(ucb_entry.T_list))
+            max_time_list = list(np.round(ucb_entry.max_time_list))
+            n = ucb_entry.n
+            ucbs[j] = (a, scores, times, times_index, T_list, max_time_list, n)
+            j+= 1
+        stat.append(ucbs)
+        self.bandits[bandit.id].append(stat)
+
+    def print_ucb(self):
+        with open(self.log_ucb_filename, 'w') as w:
+            for i in range(self.num_node):
+                w.write('\t\tnode {}\n'.format(i))
+                for stat in self.bandits[i]:
+                    epoch, arms, num_msgs, ucbs  = stat
+                    num_region = len(ucbs)
+                    w.write('>epoch {}. arms {}\n'.format(epoch, arms))
+                    for l in range(num_region):
+                        arm, scores, times, times_index, T_list, max_time_list, n = ucbs[l]
+                        w.write('region={region} {num_msg}, arm={arm}, {n} # {times} # {times_index} # {scores} # {T_list} # {max_time_list} \n'.format(
+                            region=l, num_msg=num_msgs[l], arm=arm, 
+                            n=n, times=times, times_index=times_index, scores=scores, 
+                            T_list=T_list, max_time_list=max_time_list))
+
+    def print_WH(self):
+        with open(self.log_solver_filename, 'w') as w:
+            for i in range(self.num_node):
+                w.write('node' + str( i) + '\n')
+                H_ =  self.H_list[i]
+                for e in range(len(H_)):
+                    H = H_[e]
+                    w.write('epoch ' +str(e) + '\n')
+                    for i in range(H.shape[0]):
+                        t = [str(r) for r in list(np.round(H[i], 2))]
+                        txt = ' '.join(t)
+                        w.write('[' +txt + ']\n')
+
+
+                # w.write('\t\tnode {}\n'.format(i))
+                # w.write('H mean {}\n'.format(self.H_mean_list[i]))
+                # w.write('H max {}\n'.format(self.H_max_list[i]))
+                # w.write('H zero {}\n'.format(self.H_nz_list[i]))
+                # # w.write('W mean {}\n'.format(self.W_mean_list[i]))
+                # # w.write('W max {}\n'.format(self.W_max_list[i]))
+                # w.write('W > 1/L {}\n'.format(self.W_nz_list[i]))
+                # w.write('opt {}\n'.format(self.opt_list[i]))
+         
 
 
 

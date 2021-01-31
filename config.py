@@ -10,7 +10,7 @@ num_thread = 10
 # network config
 num_node = 200
 in_lim = 200 # 40 
-num_batch = 2  # one batch contains msg of window / num_batch
+num_batch = 4  # one batch contains msg of window / num_batch
 
 # neigbor selection method
 use_matrix_completion = True 
@@ -19,7 +19,7 @@ use_2hop = False
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.1    # exit optimization difference
+tol_obj = 0.01    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
 # initialization
@@ -27,22 +27,26 @@ init_nndsvd = True # use of nndsvd encourage sparsity for both W and H
 nndsvd_seed = None # if use nndsvd, seed can be set for consistency
 # feedback
 feedback_WH = True 
+prior_WH = True 
 W_noise_mean = 0.1
 W_noise_std = 0.1
 H_noise_std_ratio = 4
+rho = 0.2 
+rho_A = 0.1
 
 # bandit
 alpha = 2 
 time_constant = 2500 
 hard_update = True   # otherwise soft 
-is_ucb = False # ucb: argmax (c - t) / c, lcb: argmin t
+is_ucb = True # ucb: argmax (c - t) / c, lcb: argmin t
+num_untouch_arm = 0
 
 
 # node config
-num_keep = 3
-num_2_hop = 3
+num_keep = 2
+num_2_hop = 2
 num_3_hop = 0
-num_random = 2
+num_random = 1
 
 # how to choose 1 hops
 both_in_and_out = True 

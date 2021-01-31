@@ -11,8 +11,9 @@ import nndsvd
 def run_pgd_nmf(i, slots, N, L, W, H, new_msgs_ind):
     X, max_time = construct_table(N, slots)
     A_init, B_init = init_matrix(L, X, W, H, new_msgs_ind)
-    A_est, B_est = alternate_minimize(A_init, B_init, X, L)
-    return A_est, B_est
+    A_est, B_est, opt = alternate_minimize(A_init, B_init, X, L, H, i, 
+            config.num_alt, config.tol_obj, config.rho_A, config.rho)
+    return A_est, B_est, opt
 
 def print_matrix(A):
     for i in range(A.shape[0]):
@@ -21,7 +22,7 @@ def print_matrix(A):
 # init A, B, X is observation matrix
 def init_matrix(L, X, W, H, new_msg_start):
     A, B = None, None
-    if H is None or not config.feedback_WH:
+    if H is None or (not config.feedback_WH) or (not config.prior_WH):
         if config.init_nndsvd:
             A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
         else:
@@ -29,25 +30,20 @@ def init_matrix(L, X, W, H, new_msg_start):
             I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
             A = A.dot(np.diag(I))
             B = np.transpose((B.T).dot(np.diag(S*I)))
-        # print('W')
-        # print_matrix(A)
-        # print('H')
-        # print_matrix(B)
-        # sys.exit(2)
         return A, B
-    else:
+    else :
         shape = W.shape 
         T = W.shape[0]
         N = H.shape[1]
 
-        A = np.zeros(shape)
-        A[:new_msg_start] = W[:new_msg_start] + np.random.normal(
-                    config.W_noise_mean, 
-                    config.W_noise_std, size=(new_msg_start, L)) 
-        A[new_msg_start:] = np.ones((T-new_msg_start, L))  # np.random.rand(T-new_msg_start, L)
+        A = W # np.zeros(shape)
+        # A[:new_msg_start] = W[:new_msg_start] + np.random.normal(
+                    # config.W_noise_mean, 
+                    # config.W_noise_std, size=(new_msg_start, L)) 
+        # A[new_msg_start:] = np.ones((T-new_msg_start, L))  # np.random.rand(T-new_msg_start, L)
         # np.ones((T-new_msg_start, L))
-
-        B = H # - np.random.rand(L, N) * H_mean
+        # H_mean = np.mean(H)
+        B = H # + np.random.rand(L, N) * H_mean / 2
         return A, B
 
 def construct_table(N, slots):
@@ -65,69 +61,72 @@ def construct_table(N, slots):
     return X, max_time
 
 # mask out non date entry, W is A, H is B
-def alternate_minimize(A_init, B_init, X, L):
+def alternate_minimize(A_init, B_init, X, L, prev_B, node_id, 
+        num_alt, tol_obj, rho_A, rho_B):
     start = time.time()
     A = A_init
     B = B_init
     I = X > 0 
     P = (A.dot(B) - X) * I 
+
     num_row = A.shape[0]
+    # B_reg = prev_B
+    # if prev_B is None:
+        # B_reg = np.zeros(B.shape)
+    # else:
+        # print('node ', node_id,
+            # round(np.mean(B_reg), 3), 
+            # round(np.std(B_reg), 3),
+            # round(np.max(B_reg), 3))
 
     prev_opt = 9999
     opts = []
-    for epoch in range(config.num_alt):
+    for epoch in range(num_alt):
         # norm_delta_A = 9999
         step_A = 0
         # update A
-        while step_A < config.max_step:
-            #prev_A = np.copy(A)
-            grad_A = P.dot(B.T)
-            t_A = 0.25 * LA.norm(grad_A, 'fro')**2 / LA.norm( grad_A.dot(B) * I, 'fro')**2
-            A_tilde = A - t_A * grad_A
-            for i in range(num_row):
-                # A[i,:] = euclidean_proj_simplex(A_tilde[i], 1)
-                # A[i,:] = proj_simplex_cvxpy(1, A_tilde[i])
-                # A[i,:] =  projection_simplex_bisection(A_tilde[i], 1)
-                # A[i,:] = projection_simplex_pivot(A_tilde[i])
-                A[i,:] = projection_simplex_sort(A_tilde[i])
+        #while step_A < 10 and diff_A < 0.01: 
+        grad_A = P.dot(B.T)
+        t_A = 0.25 * LA.norm(grad_A, 'fro')**2 / LA.norm( grad_A.dot(B) * I, 'fro')**2
+        A_tilde = A - t_A * (grad_A + rho_A*(A) ) # 
+        for i in range(num_row):
+            # A[i,:] = euclidean_proj_simplex(A_tilde[i], 1)
+            # A[i,:] = proj_simplex_cvxpy(1, A_tilde[i])
+            # A[i,:] =  projection_simplex_bisection(A_tilde[i], 1)
+            # A[i,:] = projection_simplex_pivot(A_tilde[i])
+            A[i,:] = projection_simplex_sort(A_tilde[i])
 
-            step_A += 1
-            #norm_delta_A = LA.norm(A-prev_A, 'fro')
-
-        # update B
-        # norm_delta_B = 9999
-        step_B = 0
-        while step_B < config.max_step:
-            #prev_B = np.copy(B)
-            grad_B = (A.T).dot(P)
-            t_B = 0.25 * LA.norm(grad_B, 'fro')**2 / LA.norm( A.dot(grad_B) * I, 'fro')**2
-            B = B - t_B * grad_B
-            B[B<0] = 0 
-            step_B += 1
-            #norm_delta_B = LA.norm(B-prev_B, 'fro')
+        grad_B = (A.T).dot(P)
+        t_B = 0.25 * LA.norm(grad_B, 'fro')**2 / LA.norm( A.dot(grad_B) * I, 'fro')**2
+        B = B - t_B * (grad_B + rho_B*(B))  # - B_reg  
+        B[B<0] = 0 
 
         P = (A.dot(B) - X) * I
         opt = 0.5 * LA.norm(P, 'fro')
-        # opts.append(opt)
+        opts.append(opt)
         diff = prev_opt - opt
-        if diff > 0 and diff < config.tol_obj: # and opt < 10
+        if diff > 0 and diff < tol_obj: # and opt < 10
             # print('opt', prev_opt - opt)
-            # print_matrix(A)
-            # print_matrix(B)
-            #print('good opt')
-            # sys.exit(2)
-            # print('out', epoch, 'A', step_A, 'B', step_B)
             break
         prev_opt = opt
-    # print(time.time() - start, prev_opt - opt, opt)
-    # print('Matrix A')
-    # print_matrix( A)
-    # print('Matrix B')
-    # print_matrix(B)
-    # print(opts)
-    # print(prev_opt - opt)
-    # sys.exit(2)
-    return A, B 
+
+    # if node_id == 39:
+    # print('node', node_id, 
+            # round(time.time() - start,3), 
+            # round(prev_opt - opt), 
+            # round(opt, 3), 
+            # round(LA.norm(B, 'fro'), 3), 
+            # round(np.mean(B), 3),
+            # round(np.max(B), 3))
+        # print('Matrix A')
+        # print_matrix( A)
+        # print('Matrix B')
+        # print_matrix(B)
+        # print(opts)
+        # print(prev_opt - opt)
+    # if prev_B is not None:
+        # sys.exit(2)
+    return A, B, opt 
 
 
 

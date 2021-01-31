@@ -12,6 +12,7 @@ import config
 import initnetwork
 import readfiles
 import math
+import tester
 
 from experiment import Experiment
 def run():
@@ -129,6 +130,21 @@ def run():
         print('Error. Unknown subcommand')
         sys.exit(1)
 
+def test_mf():
+    if len(sys.argv) < 4:
+        print('test-mf N L std num_exp')
+        sys.exit(1)
+    N = int(sys.argv[2])
+    L = int(sys.argv[3])
+    std = float(sys.argv[4])
+    num = int(sys.argv[5])
+    T = int(math.ceil(L * math.log(N)))
+    tester.test_mf(T, N, L, std, num)
+
 if __name__ == '__main__':
-    run()
+    subcommand = sys.argv[1]
+    if subcommand == 'test-mf':
+        test_mf()
+    else:
+        run()
 
