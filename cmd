@@ -2,9 +2,8 @@
 trap kill_batch INT
 
 if [ $1 = "help" ]; then
-	echo "./cmd subcommand[run/complete] name[string] seed[int] out_lim[int] useNodeHash[y/n] roundList[intList]"
-	echo "./cmd run two-hop-subset 1 8 y 0 1 2 3"
-	echo "./cmd two-hop-subset 1 8 n 0 1 2 3 4 12 20 28 36 44 52 69 68 76 84 92 100 108"
+	echo "./cmd subcommand[run/complete] name[string] seed[int] out_lim[int] num_region[int] useNodeHash[y/n] roundList[intList]"
+	echo "./cmd run two-hop-subset 1 8 4 y 0 1 2 3"
 	exit 0
 fi
 
@@ -21,9 +20,10 @@ subcommand=$1
 name=$2
 seed=$3
 out_lim=$4
-use_node_hash=$5
+num_region=$5
+use_node_hash=$6
 
-record_round="${@:6}"
+record_round="${@:7}"
 
 dirname="${name}_seed${seed}"
 dirpath="analysis/$dirname"
@@ -32,7 +32,7 @@ cp *.py $dirpath
 
 # run experiment
 if [ ${subcommand} = 'run' ]; then 
-	python testbed.py run ${seed} ${dirpath} ${out_lim} ${use_node_hash} ${record_round}
+	python testbed.py run ${seed} ${dirpath} ${out_lim} ${num_region} ${use_node_hash} ${record_round}
 else
 	python testbed.py complete_graph ${seed} ${dirpath} ${out_lim} ${use_node_hash} ${record_round}
 fi
@@ -52,5 +52,4 @@ ${cal_cmd}
 plot_cmd="./plot_single.py ${dirname} ${seed} ${record_round}"
 echo ${plot_cmd}
 ${plot_cmd}
-open "${dirname}/${dirname}.png"
 

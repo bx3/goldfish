@@ -100,54 +100,57 @@ def get_random_regions(num, num_region):
     random.shuffle(regions)
     return regions[:num]
 
-def bandit_selection(bandit, W, X, network_state, outs_neighbors, out_lim, num_msg, max_time, printer, epoch, keeps):
-    bandit.update_ucb_table(W, X, num_msg, max_time)
-    valid_arms = get_pullable_arms(bandit.id, network_state)
-    keep_arms = [a for l, a in keeps]
-    for a in keep_arms:
-        if a in valid_arms:
-            valid_arms.remove(a)
+def bandit_selection(bandit, W, X, network_state, outs_neighbors, out_lim, num_msg, max_time, logger, epoch, keeps):
+    origins = bandit.update_ucb_table(W, X, num_msg, max_time)
+    bandit.log_scores(logger, epoch, origins[-num_msg:])
 
-    arms = bandit.pull_arms(valid_arms)
-    printer.update_ucb(bandit, [a for l, a in arms], epoch)
+    valid_arms = get_pullable_arms(bandit.id, network_state)
+    # keep_arms = [a for l, a in keeps]
+    # for a in keep_arms:
+        # if a in valid_arms:
+            # valid_arms.remove(a)
+
+    arms = bandit.pull_arms(valid_arms, out_lim)
+
+
     # pulled_arms = bandit.get_pulled_arms()
     return arms
 
-def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, network_state, num_msg, pools, printer, epoch):
+def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
 
     start = time.time()
-    if config.num_thread == 1:
-        for i in update_nodes:
-            opt = optimizers[i]
-            st = sparse_tables[i]
-            W, H = solver.run_pgd_nmf(i, st.table[-st.window:], 
-                    st.N, st.L, opt.W, opt.H, st.window-num_msg)
-            X, max_time = solver.construct_table(st.N, st.table[-st.window:])
-            opt.store_WH(W, H)
+    # if config.num_thread == 1:
+        # for i in update_nodes:
+            # opt = optimizers[i]
+            # st = sparse_tables[i]
+            # W, H = solver.run_pgd_nmf(i, st.table[-st.window:], 
+                    # st.N, st.L, opt.W, opt.H, st.window-num_msg)
+            # X, max_time = solver.construct_table(st.N, st.table[-st.window:])
+            # opt.store_WH(W, H)
             
-            peers = bandit_selection(
-                    bandits[i], W, X, network_state, 
-                    outs_neighbors, out_lim, num_msg, max_time, epoch)
+            # peers = bandit_selection(
+                    # bandits[i], W, X, network_state, 
+                    # outs_neighbors, out_lim, num_msg, max_time, epoch)
             
 
-            # argmin_top_peers = choose_best_neighbor(H)
-            # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
-            # debug
-            # print(i, argmin_top_peers, argmin_peers)
-            # print(get_times(argmin_top_peers, X, out_lim))
-            # print(get_times(argmin_peers, X, out_lim))
-            # sys.exit(2)
-            for p in peers:
-                if is_connectable(i, p, network_state, outs_neighbors[i]):
-                    outs_neighbors[i].append(p)
-                    network_state.add_in_connection(i, p)
+            # # argmin_top_peers = choose_best_neighbor(H)
+            # # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
+            # # debug
+            # # print(i, argmin_top_peers, argmin_peers)
+            # # print(get_times(argmin_top_peers, X, out_lim))
+            # # print(get_times(argmin_peers, X, out_lim))
+            # # sys.exit(2)
+            # for p in peers:
+                # if is_connectable(i, p, network_state, outs_neighbors[i]):
+                    # outs_neighbors[i].append(p)
+                    # network_state.add_in_connection(i, p)
 
-        print('selection', round(time.time()-start, 2))
-        # print_bandits(bandits)
-    else:
-        multithread_matrix_factor(nodes, optimizers, sparse_tables,  bandits, update_nodes, network_state, outs_neighbors, out_lim, num_msg, pools, printer, epoch)
+        # print('selection', round(time.time()-start, 2))
+        # # print_bandits(bandits)
+    # else:
+    multithread_matrix_factor(nodes, optimizers, sparse_tables,  bandits, update_nodes, network_state, outs_neighbors, out_lim, num_region, num_msg, pools, loggers, epoch)
 
     # choose random peers
     # num_random = 0
@@ -282,18 +285,26 @@ def get_times(peers, X, out_lim):
     return times 
 
 # debug
-def print_matrix(A):
+def print_mat(A):
     for i in range(A.shape[0]):
-        print(list(np.round(A[i], 3)))
+        text = ["{:4d}".format(int(a)) for a in A[i]]
+        print(' '.join(text))
 
-def multithread_matrix_factor(nodes, optimizers, sparse_tables, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_msg, pools, printer, epoch):
+def multithread_matrix_factor(nodes, optimizers, sparse_tables, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_region, num_msg, pools, loggers, epoch):
     args = []
     W_ = {}
     start = time.time()
+    init_new = None
+
     for i in range(len(update_nodes)):
         opt = optimizers[i]
         st = sparse_tables[i]
-        arg = (i, st.table[-st.window:], st.N, st.L, opt.W, opt.H, st.window-num_msg)
+        if opt.H is None:
+            init_new = True
+        else:
+            init_new = False
+
+        arg = (i, st.table[-st.window:], st.N, st.L, opt.W, opt.H, st.window-num_msg, init_new)
         args.append(arg)
 
     results = pools.starmap(solver.run_pgd_nmf, args)
@@ -301,39 +312,36 @@ def multithread_matrix_factor(nodes, optimizers, sparse_tables, bandits, update_
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
         W, H, opt = results[i]
+
+        loggers[i].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
+
         W_[i] = W
-        printer.update_WH(i, W, H, opt)
-        # if i == 12:
-            # print_matrix(W)
         optimizers[i].store_WH(W, H)
-        
 
     for i in update_nodes:
         opt = optimizers[i]
         st = sparse_tables[i]
         X, max_time = solver.construct_table(st.N, st.table[-opt.window:])
-        # keep some regions
+
         selected_arms = []
         keep_arms = []
-        keep_regions = get_random_regions(config.num_untouch_arm, out_lim) 
-        if config.num_untouch_arm > 0:
-            curr_peers = nodes[i].ordered_outs
-            if len(curr_peers) < out_lim:
-                print(i, 'curr_peers', curr_peers)
-                sys.exit(2)
-            keep_arms = select_keep_arms(i, curr_peers, keep_regions, network_state)
-        selected_arms += keep_arms
+        keep_regions = [] # get_random_regions(config.num_untouch_arm, num_region) 
+        # if config.num_untouch_arm > 0:
+            # curr_peers = nodes[i].ordered_outs
+            # if len(curr_peers) < out_lim:
+                # print(i, 'curr_peers', curr_peers)
+                # sys.exit(2)
+            # keep_arms = select_keep_arms(i, curr_peers, keep_regions, network_state)
+        # selected_arms += keep_arms
 
         # select arms
         bandit_arms = bandit_selection(
                 bandits[i], W_[i], X, network_state, 
-                outs_neighbors, out_lim, num_msg, max_time, printer, epoch, keep_arms)
-
+                outs_neighbors, out_lim, num_msg, max_time, loggers[i], epoch, keep_arms)
         
         for l in range(out_lim):
             if l not in keep_regions:
                 selected_arms.append(bandit_arms[l])
-
 
         peers = [p for i, p in sorted(selected_arms, key=lambda x: x[0])]
             
@@ -381,23 +389,3 @@ def select_keep_arms(i, curr_peers, keep_regions, network_state):
         # selected_nodes.add(arm)
         # selected.append((l, arm))
     return selected 
-
-
-
-
-
-# for p in arms:
-        # if not is_connectable(bandit.id, p, network_state, outs_neighbors[bandit.id]):
-            # print('arm not pullable', bandit.id, p)
-            # print(outs_neighbors[bandit.id])
-            # print(outs_neighbors[p])
-            # print(network_state.num_in_conn[p])
-            # sys.exit(1)
-
-    
-    # for l in range(out_lim):
-        # a = arms[l]
-        # if (l, a) in pulled_arms:
-            # arm_not_pulled = bandit.get_num_not_pulled()
-            # print(bandit.id, 'pull an old arm', l, a)
-            # print(arm_not_pulled, '\n')

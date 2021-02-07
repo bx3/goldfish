@@ -1,4 +1,5 @@
 import sys
+#import autograd.numpy as np
 import numpy as np
 from numpy import linalg as LA
 from scipy.sparse.linalg import svds
@@ -8,21 +9,21 @@ import config
 import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
-def run_pgd_nmf(i, slots, N, L, W, H, new_msgs_ind):
+def run_pgd_nmf(i, slots, N, L, W, H, new_msgs_ind, init_new):
     X, max_time = construct_table(N, slots)
-    A_init, B_init = init_matrix(L, X, W, H, new_msgs_ind)
-    A_est, B_est, opt = alternate_minimize(A_init, B_init, X, L, H, i, 
-            config.num_alt, config.tol_obj, config.rho_A, config.rho)
-    return A_est, B_est, opt
+    W_init, H_init = init_matrix(L, X, W, H, new_msgs_ind, init_new)
+    W_est, H_est, opt = alternate_minimize(W_init, H_init, X, L, None, i, 
+            config.num_alt, config.tol_obj, config.rho_W, config.rho_H)
 
-def print_matrix(A):
+    return W_est, H_est, opt
+
+def print_mat(A):
     for i in range(A.shape[0]):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(L, X, W, H, new_msg_start):
-    A, B = None, None
-    if H is None or (not config.feedback_WH) or (not config.prior_WH):
+def init_matrix(L, X, W, H, new_msg_start, init_new):
+    if init_new : #or (not config.feedback_WH) or (not config.prior_WH)
         if config.init_nndsvd:
             A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
         else:
@@ -35,16 +36,21 @@ def init_matrix(L, X, W, H, new_msg_start):
         shape = W.shape 
         T = W.shape[0]
         N = H.shape[1]
+        L = W.shape[1]
 
-        A = W # np.zeros(shape)
+        W_out = np.zeros(W.shape)
+        num_msg = T-new_msg_start
+        new_noise = np.random.rand(num_msg, L)
+        W_out[:new_msg_start] = W[num_msg:]
+        W_out[new_msg_start:] = new_noise
+
         # A[:new_msg_start] = W[:new_msg_start] + np.random.normal(
                     # config.W_noise_mean, 
                     # config.W_noise_std, size=(new_msg_start, L)) 
         # A[new_msg_start:] = np.ones((T-new_msg_start, L))  # np.random.rand(T-new_msg_start, L)
         # np.ones((T-new_msg_start, L))
         # H_mean = np.mean(H)
-        B = H # + np.random.rand(L, N) * H_mean / 2
-        return A, B
+        return W_out, H
 
 def construct_table(N, slots):
     T = len(slots)
@@ -60,24 +66,62 @@ def construct_table(N, slots):
         i += 1
     return X, max_time
 
-# mask out non date entry, W is A, H is B
-def alternate_minimize(A_init, B_init, X, L, prev_B, node_id, 
-        num_alt, tol_obj, rho_A, rho_B):
-    start = time.time()
-    A = A_init
-    B = B_init
-    I = X > 0 
-    P = (A.dot(B) - X) * I 
 
-    num_row = A.shape[0]
-    # B_reg = prev_B
-    # if prev_B is None:
-        # B_reg = np.zeros(B.shape)
-    # else:
-        # print('node ', node_id,
-            # round(np.mean(B_reg), 3), 
-            # round(np.std(B_reg), 3),
-            # round(np.max(B_reg), 3))
+
+
+def update_right(A, S, X):
+    """Update right factor for matrix completion objective."""
+    m, n = A.shape
+    _, k = X.shape
+    Y = np.zeros((n, k))
+    # For each row, solve a k-dimensional regression problem
+    # only over the nonzero projection entries. Note that the
+    # projection changes the least-squares matrix siX so we
+    # cannot vectorize the outer loop.
+    for i in range(n):
+        si = S[:, i]
+        sia = A[si, i]
+        siX = X[si]
+        Y[i,:] = np.linalg.lstsq(siX, sia, rcond=-1)[0]
+    return Y
+
+def update_left(A, S, Y):
+    return update_right(A.T, S.T, Y)
+
+
+
+
+
+# def update_right(X, I, W):
+    # T, N = X.shape
+    # _, L = W.shape
+    # W_tilde = np.zeros(L, T)
+    
+    # for i in range(N):
+        # si = I[:, i]
+        # six = X[si, i]
+        # siW = W.T[si]
+        # print(siW)
+        # print(six)
+        # W_tilde[:,i] = np.linalg.lstsq(siW, six)[0]
+    # return W_tilde
+
+# def update_left(X, I, H):
+    # return update_right(X.T, I.T, H) 
+
+def mc_obj(X, I, W, H):
+    return 0.5 * np.linalg.norm(X - np.multiply(np.dot(W, H.T), I))**2
+
+# mask out non date entry, W is A, H is B
+def alternate_minimize(W_init, H_init, X, L, prev_H, node_id, 
+        num_alt, tol_obj, rho_W, rho_H):
+    start = time.time()
+    W = W_init
+    H = H_init
+    I = X > 0 
+    P = (W.dot(H) - X) * I 
+
+    num_row = W.shape[0]
 
     prev_opt = 9999
     opts = []
@@ -86,22 +130,35 @@ def alternate_minimize(A_init, B_init, X, L, prev_B, node_id,
         step_A = 0
         # update A
         #while step_A < 10 and diff_A < 0.01: 
-        grad_A = P.dot(B.T)
-        t_A = 0.25 * LA.norm(grad_A, 'fro')**2 / LA.norm( grad_A.dot(B) * I, 'fro')**2
-        A_tilde = A - t_A * (grad_A + rho_A*(A) ) # 
+        grad_W = P.dot(H.T)
+        # if LA.norm( grad_W.dot(H) * I, 'fro')**2 == 0:
+            # print('Error. denom is 0')
+            # sys.exit(1)
+
+        t_W = 0.25 * LA.norm(grad_W, 'fro')**2 / LA.norm( grad_W.dot(H) * I, 'fro')**2
+        #t_W = np.trace(P.T.dot(grad_W.dot(H))) / np.trace(H.T.dot(grad_W.T).dot(grad_W).dot(H))
+        # t_A = 1/LA.norm(B.dot(B.T), 'fro')**2
+
+        W = W - t_W * (grad_W + rho_W*(W) ) # 
+        # W_tilde = update_left(X, I, H.T) 
+        # W = W - grad(lambda W: mc_obj(X, I, W, H))(W)
         for i in range(num_row):
             # A[i,:] = euclidean_proj_simplex(A_tilde[i], 1)
             # A[i,:] = proj_simplex_cvxpy(1, A_tilde[i])
             # A[i,:] =  projection_simplex_bisection(A_tilde[i], 1)
             # A[i,:] = projection_simplex_pivot(A_tilde[i])
-            A[i,:] = projection_simplex_sort(A_tilde[i])
+            W[i,:] = projection_simplex_sort(W[i])
 
-        grad_B = (A.T).dot(P)
-        t_B = 0.25 * LA.norm(grad_B, 'fro')**2 / LA.norm( A.dot(grad_B) * I, 'fro')**2
-        B = B - t_B * (grad_B + rho_B*(B))  # - B_reg  
-        B[B<0] = 0 
+        grad_H = (W.T).dot(P)
+        t_H = 0.25 * LA.norm(grad_H, 'fro')**2 / LA.norm( W.dot(grad_H) * I, 'fro')**2
+        # t_H = np.trace(P.T.dot(W).dot(grad_H)) / np.trace(grad_H.T.dot(W.T).dot(W).dot(grad_H))
+        # # t_H = 1/ LA.norm(A.T.dot(A), 'fro')**2
+        H = H - t_H * (grad_H + rho_H*(H ))  
+        # H = update_right(X, I, W).T
+        # H = H - grad(lambda H: mc_obj(X, I, W, H))(H)
+        H[H<0] = 0 
 
-        P = (A.dot(B) - X) * I
+        P = (W.dot(H) - X) * I
         opt = 0.5 * LA.norm(P, 'fro')
         opts.append(opt)
         diff = prev_opt - opt
@@ -126,7 +183,7 @@ def alternate_minimize(A_init, B_init, X, L, prev_B, node_id,
         # print(prev_opt - opt)
     # if prev_B is not None:
         # sys.exit(2)
-    return A, B, opt 
+    return W, H, opt 
 
 
 

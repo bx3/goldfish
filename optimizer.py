@@ -11,7 +11,7 @@ class SparseTable:
         self.table = []
         self.id = node_id
         self.N = num_node
-        self.L = num_region # region = num out degree
+        self.L = num_region # region != num out degree
         self.window = window # time window that discard old time data
 
     def append_time(self, slots, num_msg):

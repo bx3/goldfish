@@ -78,7 +78,7 @@ def GenerateInitialGraph():
 def GenerateInitialDelay(num_node):
     delay=[0 for i in range(num_node)]
     for i in range(num_node):
-        buff= np.random.normal(50, 4.5)
+        buff= np.random.normal(config.node_delay_mean, config.node_delay_std)
         delay[i]=round(buff,6)
     return(delay)
 

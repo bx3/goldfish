@@ -10,17 +10,21 @@ def print_matrix(A):
         print(list(np.round(A[i], 3)))
 
 class UcbEntry:
-    def __init__(self, l, a, node_id):
+    def __init__(self, l, a, node_id, ucb_method):
         self.id = node_id
         self.l = l  # l for region
         self.a = a  # a for arm 
-        self.n = 0  # number times being pull
+        self.n = 0  # number times being pull, number of rewards
+
+        self.samples = []
+
         self.times = []
         self.times_index = [] # when times is added
         self.shares = []
         self.score_list = []
         self.T_list = []
         self.max_time_list = []
+        self.ucb_method = ucb_method
 
     def time_to_ucb_reward(self, t, max_time):
         re = (max_time - t) / max_time
@@ -32,51 +36,57 @@ class UcbEntry:
         re = t / max_time
         return re
 
-    # T is used for debug, indicating current epoch after addition
+    # T is used for debug, indicating when reward is given
     def update(self, t, share, T):
-        self.n += 1
-        self.times.append(t)
-        self.times_index.append(T)
-        self.shares.append(share)
+        sample = (t, T, share)
+        self.samples.append(sample)
 
     def notify_pulled(self, score, T, max_time):
         self.score_list.append(score)
         self.T_list.append(T)
         self.max_time_list.append(max_time)
 
+    def get_bound(self, T, max_time):
+        if self.ucb_method == 'ucb':
+            return self.get_upper_bound(T, max_time)
+        elif self.ucb_method == 'lcb':
+            return self.get_lower_bound(T, max_time)
+        else:
+            print('Error. Unknown ucb method')
+            sys.exit(1)
+
     def get_lower_bound(self, T, max_time):
-        if self.n == 0:
+        n = len(self.samples)
+        if n == 0:
             return -1.0 * config.time_constant
 
         # get means
         sum_reward = 0.0
-        for i in range(len(self.times)):
-            t = self.times[i]
-            s = self.shares[i]
+        sum_share = 0.0
+        for sample in self.samples:
+            t, T, s = sample
             sum_reward += self.time_to_lcb_reward(t, max_time) * s
-        if sum(self.shares) == 0:
-            print('share', self.shares)
-            print('n', self.n)
-        empirical_mean = 1.0/sum(self.shares) * sum_reward
-        lower_bound = empirical_mean - math.sqrt(config.alpha * math.log(T) / 2.0 / self.n)
+            sum_share += s
+
+        empirical_mean = sum_reward/sum_share
+        lower_bound = empirical_mean - math.sqrt(config.alpha * math.log(T) / 2.0 / n)
         return lower_bound
 
     def get_upper_bound(self, T, max_time):
-        if self.n == 0:
-            # print('node', self.id, 'has not pulled region', self.l, 'arm', self.a)
-            return  config.time_constant
+        n = len(self.samples)
+        if n == 0:
+            return config.time_constant
 
         # get means
-        sum_reward = 0
-        for i in range(len(self.times)):
-            t = self.times[i]
-            s = self.shares[i]
+        sum_reward = 0.0
+        sum_share = 0.0
+        for sample in self.samples:
+            t, T, s = sample
             sum_reward += self.time_to_ucb_reward(t, max_time) * s
+            sum_share += s
+        empirical_mean = sum_reward/sum_share 
 
-        empirical_mean = 1.0/sum(self.shares) * sum_reward
-
-        # upper bound
-        upper_bound = empirical_mean + math.sqrt(config.alpha * math.log(T) / 2.0 / self.n)
+        upper_bound = empirical_mean + math.sqrt(config.alpha * math.log(T) / 2.0 / n)
         return upper_bound
 
 class Bandit:
@@ -86,15 +96,39 @@ class Bandit:
         self.num_region = num_region
         self.num_node = num_node 
         self.alpha = config.alpha 
-        self.is_init = True 
+        self.is_init = False # is false, if we don't record randomization data
         self.max_time = 0
         self.T = 0    # this T is used for ucb, count number of conn changes
         self.num_msgs = [0 for _ in range(num_region)] # key is region, value is number recv msg
+
+        self.special_num = config.time_constant
+        if config.ucb_method == 'lcb':
+            self.special_num = -1*config.time_constant
+
         for i in range(num_region):
             for j in range(num_node):
                 if j != self.id:
                     # node cannot pull itself
-                    self.ucb_table[(i,j)] = UcbEntry(i, j, node_id)
+                    self.ucb_table[(i,j)] = UcbEntry(i, j, node_id, config.ucb_method)
+
+    def log_table(self, logger, epoch, origins):
+        logger.write_str('>'+str(epoch)+'.ucb.' + str(origins))
+        for pair, entry in self.ucb_table.items():
+            l, i = pair
+            if len(entry.samples) > 0:
+                logger.write_ucb(l, i, entry.samples)
+
+    def log_scores(self, logger, epoch, origins):
+        score_table = np.zeros((self.num_region, self.num_node))
+        for l in range(self.num_region):
+            for i in range(self.num_node):
+                score = self.special_num
+                if i != self.id:
+                    score = self.ucb_table[(l,i)].get_bound(self.T, self.max_time)
+                score_table[l, i] = score
+
+        comment = '>'+str(epoch)+'.ucb time:'+str(self.T)+'.max:'+str(int(self.max_time))+'.origins:'+str(origins)+'.ucb scores'
+        logger.write_float_mat(score_table, comment, self.special_num)
 
     def soft_update(self, times, shares):
         assert(len(shares) == self.num_region)
@@ -106,19 +140,14 @@ class Bandit:
                     t = times[i]
                     if i != self.id and t != 0:
                         # selected that arm
-                        self.ucb_table[(l, i)].update(t, share, self.T)
+                        self.ucb_table[(l,i)].update(t, share, self.T)
 
     def hard_update(self, times, shares):
         origin = np.argmax(shares)
         self.num_msgs[origin] += 1
-        # print('shares', shares)
-        # print('times', times)
-        # print('origin', origin)
-        # rewards = time_to_reward(last_observation)
         for i in range(len(times)):
             t = times[i]
             if i != self.id and t != 0:
-                # selected that arm
                 self.ucb_table[(origin, i)].update(t, 1, self.T)
 
     def get_ucb_score(self, l, j):
@@ -154,59 +183,57 @@ class Bandit:
             for i in range(num_row - num_msg, num_row):
                 shares = W[i] # which sums to 1
                 # TODO simple trick not letting two updates in one config
-                if config.hard_update:
-                    origin = np.argmax(shares)
-                    if origin in seen:
-                        continue
-                seen.add(origin)
+                # if config.hard_update:
+                    # origin = np.argmax(shares)
+                    # if origin in seen:
+                        # continue
+                # seen.add(origin)
 
                 observation = X[i]
                 self.update_one_msg(observation, shares)
-
+        return np.argmax(W, axis=1)
 
     # masks if some arms cannot be pulled
-    def pull_arms(self, valid_arms):
+    def pull_arms(self, valid_arms, required_arm):
         arms = []
-        for l in range(self.num_region):
-            best_arm, best_score = [], None
-            scores = []
-            for j in valid_arms:
-                if j != self.id:
-                    if config.is_ucb:
-                        score = self.ucb_table[(l,j)].get_upper_bound(self.T, self.max_time)
-                        scores.append(score)
-                        if best_score == None or score > best_score:
-                            best_score = score
-                            best_arm = [j]
-                        elif score == best_score:
-                            best_arm.append(j)
-                    else:
-                        score = self.ucb_table[(l,j)].get_lower_bound(self.T, self.max_time)
-                        scores.append(score)
-                        if best_score == None or score < best_score:
-                            best_score = score
-                            best_arm = [j]
-                        elif score == best_score:
-                            best_arm.append(j)
+        while len(arms) < required_arm:
+            for l in range(self.num_region):
+                scores = []
+                for j in valid_arms:
+                    assert(j != self.id)
+                    score = self.ucb_table[(l,j)].get_bound(self.T, self.max_time)
+                    scores.append(score)
 
-            random.shuffle(best_arm)
-            selected_arm = best_arm[0]
-            selected_ucb_entry = self.ucb_table[(l, selected_arm)]
-            selected_ucb_entry.notify_pulled(best_score, self.T, self.max_time)
-            # if len(selected_ucb_entry.times) > 0:
-                # if best_score < 10:
-                    # print(selected_arm)
-                    # print(l)
-                    # for j in valid_arms:
-                        # print((l, j))
-                        # print(self.ucb_table[(l,j)].times)
-                        # print(best_score)
-                        
-                    # sys.exit(2)
+                selected_arm, best_score = self.choose_best_region_arm(valid_arms, scores)
+                
+                selected_ucb_entry = self.ucb_table[(l, selected_arm)]
+                selected_ucb_entry.notify_pulled(best_score, self.T, self.max_time)
 
-            arms.append((l, selected_arm))
-            valid_arms.remove(selected_arm)
+                arms.append((l, selected_arm))
+                valid_arms.remove(selected_arm)
         return arms 
+
+    def choose_best_region_arm(self, valid_arms, scores):
+        assert(len(valid_arms)==len(scores))
+        num_arms = len(valid_arms)
+        best_arms = []
+        best_score = None
+        if config.ucb_method == 'ucb':
+            best_score = max(scores)
+            for k, score in enumerate(scores):
+                if score == best_score:
+                    best_arms.append(valid_arms[k])
+        elif config.ucb_method == 'lcb':
+            best_score = min(scores)
+            for k, score in enumerate(scores):
+                if score == best_score:
+                    best_arms.append(valid_arms[k])
+        else:
+            print('Error. invalid ucb method')
+            sys.exit(1)
+
+        random.shuffle(best_arms)
+        return best_arms[0], best_score
 
     # pure exploration
     def argmin_arms(self, H):

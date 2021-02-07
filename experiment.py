@@ -1,4 +1,5 @@
 import sys
+import os
 import config
 from oracle import PeersInfo
 from communicator import Note
@@ -19,10 +20,12 @@ from optimizer import SparseTable
 from bandit import Bandit
 import initnetwork
 import math
+import logger
+import solver
 from multiprocessing.pool import Pool
 
 class Experiment:
-    def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, name, sybils, window):
+    def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, num_region, name, sybils, window):
         self.nh = node_hash
         self.ld = link_delay
         self.nd = node_delay
@@ -32,6 +35,7 @@ class Experiment:
         self.selectors = {} # selectors for choosing outgoing conn for next time
         self.in_lim = in_lim
         self.out_lim = out_lim
+        self.num_region = num_region
         self.outdir = name
 
         self.timer = time.time()
@@ -50,6 +54,11 @@ class Experiment:
 
         # log setting
         self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
+        self.logdir = self.outdir + '/' + 'logs'
+        if not os.path.exists(self.logdir):
+            os.makedirs(self.logdir)
+        self.loggers = {}
+        self.init_logger()
 
     # generate networkx graph instance
     def construct_graph(self):
@@ -113,7 +122,7 @@ class Experiment:
             self.optimizers[i] = Optimizer(
                 i,
                 self.num_node,
-                self.out_lim,
+                self.num_region,
                 self.window,
             )
     def init_sparse_tables(self):
@@ -121,7 +130,7 @@ class Experiment:
             self.sparse_tables[i] = SparseTable(
                 i,
                 self.num_node,
-                self.out_lim,
+                self.num_region,
                 self.window,
             )
 
@@ -129,9 +138,13 @@ class Experiment:
         for i in range(self.num_node):
             self.bandits[i] = Bandit(
                 i,
-                self.out_lim,
+                self.num_region,
                 self.num_node 
             )
+
+    def init_logger(self):
+        for i in range(self.num_node):
+            self.loggers[i] = logger.Logger(self.logdir, i)
 
     def init_graph(self, outs_neighbors):
         for i in range(self.num_node):
@@ -182,16 +195,18 @@ class Experiment:
         # key is id, value is a dict of peers whose values are lists of relative timestamp
         time_tables = {i:defaultdict(list) for i in range(self.num_node)}
         abs_time_tables = {i:defaultdict(list) for i in range(self.num_node)}
+        broad_nodes = []
         for _ in range(num_msg):
             broad_node = -1
             if self.nh is None:
                 broad_node = np.random.randint(self.num_node)
             else:
                 broad_node = comm_network.get_broadcast_node(self.nh)
+            broad_nodes.append(broad_node)
             self.broad_nodes.append(broad_node)
             comm_network.broadcast_msg(broad_node, self.nodes, self.ld, self.nh, time_tables, abs_time_tables)
         
-        return time_tables, abs_time_tables
+        return time_tables, abs_time_tables, broad_nodes
 
     def update_selectors(self, outs_conns, ins_conn):
         for i in range(self.num_node):
@@ -218,13 +233,19 @@ class Experiment:
             else:
                 self.optimizers[i].append_time(time_table[i])
 
-    def accumulate_table(self, time_table, abs_time_tables, num_msg):
+    def accumulate_table(self, time_table, abs_time_tables, num_msg, broad_nodes):
         for i in range(self.num_node):
-            if config.use_abs_time:
-                self.sparse_tables[i].append_time(abs_time_tables[i], num_msg)
-            else:
-                self.sparse_tables[i].append_time(time_table[i])
-
+            # broadcasting nodes cannot receive msg from others
+            if i not in broad_nodes:
+                if config.use_abs_time:
+                    self.sparse_tables[i].append_time(abs_time_tables[i], num_msg)
+                else:
+                    self.sparse_tables[i].append_time(time_table[i])
+    def decide_need_iter(self):
+        for i in range(self.num_node):
+            if len(self.sparse_tables[i].table) < self.window:
+                return True 
+        return False 
 
     def start(self, max_epoch, record_epochs, num_msg):
         network_state = NetworkState(self.num_node, self.in_lim) 
@@ -235,10 +256,12 @@ class Experiment:
         for epoch in range(max_epoch+self.window):
             print('\t\t < epoch', epoch, 'start>')
             epoch_start = time.time()
-            
+            self.log_conns(epoch)
+
             oracle = NetworkOracle(config.is_dynamic, self.adversary.sybils, self.selectors)
             outs_conns = {} 
             network_state.reset(self.num_node, self.in_lim)
+
 
             if config.use_matrix_completion:
                 if epoch-self.window in record_epochs:
@@ -246,13 +269,16 @@ class Experiment:
                 if epoch-self.window > max_epoch:
                     break 
 
-                if total_msg >= self.window:
-                    time_tables, abs_time_tables = self.broadcast_msgs(num_msg)
-                    self.accumulate_table(time_tables, abs_time_tables, num_msg)
+                need_iter = self.decide_need_iter()
+
+                if not need_iter:
+                    time_tables, abs_time_tables, broad_nodes = self.broadcast_msgs(num_msg)
+                    self.accumulate_table(time_tables, abs_time_tables, num_msg, broad_nodes)
+                    self.log_table(epoch, 1)
+
                     total_msg += num_msg
 
                     # matrix factorization
-                    print(epoch, 'start mf')
                     node_order = self.shuffle_nodes()
                     outs_conns = schedule.select_nodes_by_matrix_completion(
                         self.nodes, 
@@ -266,18 +292,21 @@ class Experiment:
                         abs_time_tables,
                         self.in_lim,
                         self.out_lim, 
+                        self.num_region,
                         network_state,
                         num_msg,
                         self.pools,
-                        self.printer,
+                        self.loggers,
                         epoch
                         )
                     structure_name =  self.outdir + "/" + 'structure_' +  str(epoch-self.window) + '.txt'
                     writefiles.write_conn(structure_name, outs_conns)
                 else:
                     # random connections
-                    time_tables, abs_time_tables = self.broadcast_msgs(1)
-                    self.accumulate_table(time_tables, abs_time_tables, 1)
+                    time_tables, abs_time_tables, broad_nodes = self.broadcast_msgs(1)
+                    self.accumulate_table(time_tables, abs_time_tables, 1, broad_nodes)
+                    self.log_table(epoch, 1)
+                    
                     total_msg += 1
                     outs_conns = initnetwork.generate_random_outs_conns(
                         self.out_lim, 
@@ -290,7 +319,7 @@ class Experiment:
                 # 1,2,3 hop selection
                 if epoch in record_epochs:
                     self.take_snapshot(epoch)
-                time_tables, abs_time_table = self.broadcast_msgs(num_msg)
+                time_tables, abs_time_table, broad_nodes = self.broadcast_msgs(num_msg)
                 node_order = self.shuffle_nodes()
                 outs_conns = schedule.select_nodes(
                     self.nodes, 
@@ -312,8 +341,8 @@ class Experiment:
 
             print('\t\t [ epoch', epoch, 'end', round(time.time() - epoch_start, 2), ']')
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
-        self.printer.print_WH()
-        self.printer.print_ucb()
+        # self.printer.print_WH()
+        # self.printer.print_ucb()
 
     def check(self):
         for i in range(self.num_node):
@@ -325,6 +354,23 @@ class Experiment:
             if num != 3:
                 print(i, out_conns)
                 sys.exit(1)
+
+    def log_conns(self, epoch):
+        for i in range(self.num_node):
+            node = self.nodes[i]
+            outs = node.ordered_outs
+            ins = sorted(node.ins)
+
+            self.loggers[i].write_conns(outs, ins, '>' + str(epoch))
+
+    def log_table(self, epoch, num_msg):
+        for i in range(self.num_node):
+            st = self.sparse_tables[i]
+            X, _ = solver.construct_table(st.N, st.table[-self.window:])
+            # TODO temporary debug hack, assuming there are 4 nodes per regions datacenter
+            sr = str(int(self.broad_nodes[-1]/4 == int(i/8)))
+            comment = '>'+str(epoch)+'. time table. Xnode:'+str(self.broad_nodes[-num_msg:])+'.sr'+sr
+            self.loggers[i].write_mat(X, comment)
 
     def start_complete_graph(self, max_epoch, record_epochs):
         start = time.time()

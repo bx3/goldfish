@@ -86,26 +86,24 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
         assert(node.received) # a node must have recved to broadcast
         is_updated = False
         for v in node.peers:
-        # for v in node.get_peers():
-            #peer = nodes[v]
-            peer = graph[v]
-            if not peer.received:
-                # if dst has not received it
-                a =  node.recv_time + ld[u][v] + peer.node_delay 
-                peer.recv_time = node.recv_time + ld[u][v] + peer.node_delay 
-                peer.received = True
-                peer.from_whom = u
-                broad_nodes.append(v)
-            else:
-                t = peer.recv_time + ld[v][u] + node.node_delay
-                if fuzzy_greater(node.recv_time, t, MISMATCH):
-                    node.recv_time = t
-                    node.from_whom = v
-                    is_updated = True
+            if v != u:
+                peer = graph[v]
+                if not peer.received:
+                    # if dst has not received it
+                    peer.recv_time = node.recv_time + ld[u][v] + peer.node_delay 
+                    peer.received = True
+                    peer.from_whom = u
+                    broad_nodes.append(v)
+                else:
+                    # if dst has recved, check if it is possible that route is earlier
+                    t = peer.recv_time + ld[v][u] + node.node_delay
+                    if fuzzy_greater(node.recv_time, t, MISMATCH):
+                        node.recv_time = t
+                        node.from_whom = v
+                        is_updated = True
+        # if that route is earlier, check if my all my peers can have earlier time by that route
         if is_updated:
             for v in node.peers:
-            #for v in node.get_peers():
-                # peer = nodes[v]
                 peer = graph[v]
                 if fuzzy_greater(
                     peer.recv_time, 
@@ -122,14 +120,15 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
         for v in node.peers:
             # peer = nodes[v]
             peer = graph[v]
-            # node.views[v] = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
-            rel_time = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
-            if rel_time < MISMATCH:
-                rel_time = 0
-            time_tables[i][v].append(rel_time) #node.views[v]
-            abs_time_tables[i][v].append(peer.recv_time + node.node_delay + ld[v][i])
-            # safety check
-            print_debug(i, node, v, peer, ld, time_tables)
+            if peer.from_whom != i:
+                # node.views[v] = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
+                rel_time = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
+                if rel_time < MISMATCH:
+                    rel_time = 0
+                time_tables[i][v].append(rel_time) #node.views[v]
+                abs_time_tables[i][v].append(peer.recv_time + node.node_delay + ld[v][i])
+                # safety check
+                print_debug(i, node, v, peer, ld, time_tables)
 
             # make sure the node actually transmit to me
             # if node.views[v] >= ld[i][v] + ld[v][i] + node.node_delay + peer.node_delay:

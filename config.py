@@ -2,15 +2,15 @@
 use_reduce_link = False 
 reduce_link_ratio = 0.1
 
+# network config
+num_node = 100 
+in_lim = num_node # 40 
+
 # load conns state from prev experiment 
 is_load_conn = False 
 conn_path = 'inputs/conn.txt'
-num_thread = 10
+num_thread = min(num_node, 60)
 
-# network config
-num_node = 200
-in_lim = 200 # 40 
-num_batch = 4  # one batch contains msg of window / num_batch
 
 # neigbor selection method
 use_matrix_completion = True 
@@ -19,7 +19,7 @@ use_2hop = False
 # optimizer
 window_constant = 1
 use_abs_time = True 
-tol_obj = 0.01    # exit optimization difference
+tol_obj = 0.001    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step
 # initialization
@@ -31,14 +31,15 @@ prior_WH = True
 W_noise_mean = 0.1
 W_noise_std = 0.1
 H_noise_std_ratio = 4
-rho = 0.2 
-rho_A = 0.1
+rho_H = 0.001
+rho_W = 0
 
 # bandit
-alpha = 2 
-time_constant = 2500 
-hard_update = True   # otherwise soft 
-is_ucb = True # ucb: argmax (c - t) / c, lcb: argmin t
+alpha = 0.01 
+time_constant = 999
+hard_update = False   # otherwise soft 
+is_ucb = False # ucb: argmax (c - t) / c, lcb: argmin t
+ucb_method = 'lcb'
 num_untouch_arm = 0
 
 
@@ -86,9 +87,14 @@ use_sequential = False
 # graph info
 data_index = 1
 hash_file = "inputs/hash1.txt"
-link_file = "inputs/weight1.txt" # "datacenter5_nodes4_inter200_intra10.txt" # "weight1.txt"
+link_file = "inputs/datacenter5_nodes20_inter200_intra50.txt" 
+# datacenter5_nodes8_inter200_intra50.txt
+# weight1.txt datacenter5_nodes4_inter200_intra50.txt
 data_file = "inputs/data1.txt"
 data_dir = "data"
+node_delay_mean = 0 # 50
+node_delay_std = 0 # 4.5
+
 
 # broadcast detail
 MISMATCH = 0.00001
