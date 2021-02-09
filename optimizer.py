@@ -18,9 +18,17 @@ class SparseTable:
         lines = [[] for _ in range(num_msg)] 
         i = 0
         for p, t_list in slots.items():
-            assert(len(t_list) == num_msg)
+            if len(t_list) != num_msg:
+                print('Error. append_time sparse table')
+                print(len(t_list))
+                print(num_msg)
+                sys.exit(2)
+            # debug
+            # if None in t_list:
+                # print(t_list)
             for i in range(num_msg):
-                lines[i].append((p, t_list[i])) 
+                if t_list[i] != None:
+                    lines[i].append((p, t_list[i])) 
         for i in range(num_msg):
             self.table.append(lines[i])
 

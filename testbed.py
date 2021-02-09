@@ -15,10 +15,10 @@ import math
 import tester
 
 from experiment import Experiment
-def run():
+def run_mf():
     if len(sys.argv) < 4:
         print('Need arguments.')
-        print('./testbed subcommand[run/complete_graph] seed[int] num_out[int] num_region[int] output_dir[str] use_node_hash[y/n] rounds[intList]')
+        print('./testbed subcommand seed[int] num_out[int] num_region[int] output_dir[str] use_node_hash[y/n] rounds[intList]')
         print('./testbed run 1 8 4 n 0 1 2 3 4 5')
         sys.exit()
 
@@ -32,8 +32,7 @@ def run():
     max_epoch = max(record_epochs) +1
     
     window = int(config.window_constant * num_region * math.ceil(math.log(config.num_node))) # T > L log N
-    num_msg = 1 # int(window / config.num_batch)
-
+    num_msg = 5 # int(window / config.num_batch)
 
     [ node_delay, 
       node_hash, link_delay, 
@@ -44,8 +43,6 @@ def run():
             config.num_node, 
             subcommand,
             out_lim)
-
-
 
     if config.use_reduce_link:
         print("\033[91m" + 'Use reduced link latency' + "\033[0m")
@@ -96,6 +93,76 @@ def run():
 
     perigee.start(max_epoch, record_epochs, num_msg)
 
+def run_2hop():
+    subcommand = sys.argv[1]
+    data_path = sys.argv[3]
+    out_lim = int(sys.argv[4])
+    num_msg = int(sys.argv[5])
+    use_node_hash = sys.argv[6]=='y'
+
+    record_epochs = [int(i) for i in sys.argv[7:]]
+    max_epoch = max(record_epochs) +1
+    
+    [ node_delay, 
+      node_hash, link_delay, 
+      neighbor_set, IncomingLimit, 
+      outs_neighbors, in_lims, 
+      bandwidth] = initnetwork.GenerateInitialNetwork(
+            config.network_type,
+            config.num_node, 
+            subcommand,
+            out_lim)
+
+    if config.use_reduce_link:
+        print("\033[91m" + 'Use reduced link latency' + "\033[0m")
+        initnetwork.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
+    else:
+        print("\033[93m" + 'Not use reduced link latency'+ "\033[0m")
+
+    # print(node_hash)
+    # for i in range(len(link_delay)):
+        # print(link_delay[i])
+    # for i in range(len(outs_neighbors)):
+        # print(i, outs_neighbors[i])
+
+    if not use_node_hash:
+        print("\033[93m" + 'Not Use asymmetric node hash'+ "\033[0m")
+        node_hash = None 
+    else:
+        print("\033[91m" + 'Use asymmetric node hash'+ "\033[0m")
+
+    if config.use_matrix_completion:
+        print("\033[93m" + 'Use matrix completion'+ "\033[0m")
+        if config.use_abs_time:
+            print("\033[93m" + '\tuse absolute time'+ "\033[0m")
+        else:
+            print("\033[93m" + '\tuse relative time'+ "\033[0m")
+    else:
+        print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
+    print("\033[93m" + 'num region '+ str(num_region) +  "\033[0m")
+    print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
+    print("\033[93m" + 'window '+ str(window) +  "\033[0m")
+
+    start = time.time()
+    adv_nodes = [i for i in range(config.num_adv)]
+
+    perigee = Experiment(
+        node_hash,
+        link_delay,
+        node_delay,
+        config.num_node,
+        config.in_lim,
+        out_lim, 
+        num_region,
+        data_path,
+        adv_nodes,
+        window
+        )
+    perigee.init_graph(outs_neighbors)
+
+    perigee.start(max_epoch, record_epochs, num_msg)
+
+
 def test_mf():
     if len(sys.argv) < 4:
         print('test-mf N L std num_exp')
@@ -120,7 +187,7 @@ def test_mf_online():
     num_msg = int(sys.argv[7])
     std = float(sys.argv[8])
 
-    T = int(2*math.ceil(L * math.log(N)))
+    T = int(math.ceil(L * math.log(N)))
     online_mf_test = tester.MF_tester(T, N, L, max_iter, name)
     online_mf_test.online_test_mf(max_iter, num_msg, std)
 
@@ -174,15 +241,31 @@ def complete_graph():
     perigee.init_graph(outs_neighbors)
     perigee.start_complete_graph(max_epoch, record_epochs)
 
+def print_help():
+    print('subcommand')
+    print('\trun-2hop seed[int] num_out[int] num_msg[int] output_dir[str] use_node_hash[y/n] rounds[intList]')
+    print('\trun-mf seed[int] num_out[int] num_region[int] output_dir[str] use_node_hash[y/n] rounds[intList]')
+    print('\tcomplete-graph seed[int] num_out[int] num_region[int] output_dir[str] use_node_hash[y/n] 1')
+    print('\ttest_mf N[int] L[int] std[float] num_exp[int]')
+    print('\tmf-online seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] std[float]')
+
+
 
 if __name__ == '__main__':
     subcommand = sys.argv[1]
-    if subcommand == 'test-mf':
+    if subcommand == 'help':
+        print_help()
+    elif subcommand == 'test-mf':
         test_mf()
     elif subcommand == 'mf-online':
         test_mf_online()
     elif subcommand == 'complete_graph':
         complete_graph() 
+    elif subcommand == 'run-2hop':
+        run_2hop()
+    elif subcommand == 'run-mf':
+        run_mf()
     else:
-        run()
-
+        print('Error. Unknown subcommand', subcommand)
+        print_help()
+        sys.exit(1)

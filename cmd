@@ -2,8 +2,8 @@
 trap kill_batch INT
 
 if [ $1 = "help" ]; then
-	echo "./cmd subcommand[run/complete] name[string] seed[int] out_lim[int] num_region[int] useNodeHash[y/n] roundList[intList]"
-	echo "./cmd run two-hop-subset 1 8 4 y 0 1 2 3"
+	# echo "./cmd subcommand[run-mf] name[string] seed[int] out_lim[int] num_region[int] useNodeHash[y/n] roundList[intList]"
+	python testbed.py help 1
 	exit 0
 fi
 

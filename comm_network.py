@@ -65,7 +65,6 @@ def init_comm_network(nodes, u):
 
 # ld is link delau, bd is broadcasting node, nh is node_hash
 def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
-
     graph = init_comm_network(nodes, u)
     # precondition
     # for i, node in nodes.items():
@@ -129,6 +128,10 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
                 abs_time_tables[i][v].append(peer.recv_time + node.node_delay + ld[v][i])
                 # safety check
                 print_debug(i, node, v, peer, ld, time_tables)
+            else:
+                time_tables[i][v].append(None) #node.views[v]
+                abs_time_tables[i][v].append(None)
+
 
             # make sure the node actually transmit to me
             # if node.views[v] >= ld[i][v] + ld[v][i] + node.node_delay + peer.node_delay:

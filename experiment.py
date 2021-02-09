@@ -205,7 +205,13 @@ class Experiment:
             broad_nodes.append(broad_node)
             self.broad_nodes.append(broad_node)
             comm_network.broadcast_msg(broad_node, self.nodes, self.ld, self.nh, time_tables, abs_time_tables)
-        
+       
+        # num_time_data = {}
+        # for i in range(self.num_node):
+            # for j, times in abs_time_tables[i].items():
+                # num_time_data[(i,j)] = len(times)
+        # print(num_time_data)
+
         return time_tables, abs_time_tables, broad_nodes
 
     def update_selectors(self, outs_conns, ins_conn):

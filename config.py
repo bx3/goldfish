@@ -3,7 +3,7 @@ use_reduce_link = False
 reduce_link_ratio = 0.1
 
 # network config
-num_node = 100 
+num_node = 40 
 in_lim = num_node # 40 
 
 # load conns state from prev experiment 
@@ -13,8 +13,8 @@ num_thread = min(num_node, 60)
 
 
 # neigbor selection method
-use_matrix_completion = True 
-use_2hop = False 
+use_matrix_completion = False 
+use_2hop = True 
 
 # optimizer
 window_constant = 1
@@ -37,9 +37,8 @@ rho_W = 0
 # bandit
 alpha = 0.01 
 time_constant = 999
-hard_update = False   # otherwise soft 
-is_ucb = False # ucb: argmax (c - t) / c, lcb: argmin t
-ucb_method = 'lcb'
+hard_update = True   # otherwise soft 
+ucb_method = 'ucb'
 num_untouch_arm = 0
 
 
@@ -87,13 +86,14 @@ use_sequential = False
 # graph info
 data_index = 1
 hash_file = "inputs/hash1.txt"
-link_file = "inputs/datacenter5_nodes20_inter200_intra50.txt" 
+link_file = "inputs/weight1.txt" 
 # datacenter5_nodes8_inter200_intra50.txt
+# datacenter5_nodes20_inter200_intra50.txt
 # weight1.txt datacenter5_nodes4_inter200_intra50.txt
 data_file = "inputs/data1.txt"
 data_dir = "data"
-node_delay_mean = 0 # 50
-node_delay_std = 0 # 4.5
+node_delay_mean = 51 # 50
+node_delay_std = 1 # 4.5
 
 
 # broadcast detail

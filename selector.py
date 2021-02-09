@@ -28,8 +28,9 @@ def get_weighted_score(table, compose, num_msg, scores):
         peer_times = table[peer]
         # print(peer_times)
         for i in range(num_msg):
-            if best_times[i] > peer_times[i]:
-                best_times[i] = peer_times[i]
+            if peer_times[i] is not None:
+                if (best_times[i] is None) or best_times[i] > peer_times[i]:
+                    best_times[i] = peer_times[i]
 
     sorted_best_time = sorted(best_times)
     new_score = sorted_best_time[int(num_msg*9.0/10)-1]
@@ -47,8 +48,9 @@ def get_score(table, compose, num_msg):
         peer_times = table[peer]
         # print(peer_times)
         for i in range(num_msg):
-            if best_times[i] > peer_times[i]:
-                best_times[i] = peer_times[i]
+            if peer_times[i] is not None:
+                if (best_times[i] is None) or best_times[i] > peer_times[i]:
+                    best_times[i] = peer_times[i]
 
     # print('best', best_times)
     sorted_best_time = sorted(best_times)
@@ -140,14 +142,14 @@ class Selector:
     # where table belongs to the node i, conn_num makes sure outgoing conn is possible
     def select_1hops(self, table, composes, num_msg, network_state):
         best_compose, best, worst_compose, worst, is_random = None, None, None, None, None
-        if config.num_thread == 1:
-            best_compose, best, worst_compose, worst, is_random = self.get_best_compose(
-                    table, composes, 
-                    num_msg)
-        else:
-            best_compose, best, worst_compose, worst, is_random = self.get_compose_multithread(
-                    table, composes, 
-                    num_msg, network_state)
+        # if config.num_thread == 1:
+        best_compose, best, worst_compose, worst, is_random = self.get_best_compose(
+                table, composes, 
+                num_msg)
+        # else:
+            # best_compose, best, worst_compose, worst, is_random = self.get_compose_multithread(
+                    # table, composes, 
+                    # num_msg, network_state)
         if is_random:
             print("none of compose is suitable, after filter. Bug")
             print(self.id, len(composes), best_compose, worst_compose)
