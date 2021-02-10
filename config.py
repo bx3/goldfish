@@ -3,7 +3,7 @@ use_reduce_link = False
 reduce_link_ratio = 0.1
 
 # network config
-num_node = 40 
+num_node = 100 
 in_lim = num_node # 40 
 
 # load conns state from prev experiment 
@@ -13,8 +13,8 @@ num_thread = min(num_node, 60)
 
 
 # neigbor selection method
-use_matrix_completion = False 
-use_2hop = True 
+use_matrix_completion = True 
+use_2hop = False 
 
 # optimizer
 window_constant = 1
@@ -86,7 +86,7 @@ use_sequential = False
 # graph info
 data_index = 1
 hash_file = "inputs/hash1.txt"
-link_file = "inputs/weight1.txt" 
+link_file = "inputs/datacenter5_nodes20_inter200_intra50.txt" 
 # datacenter5_nodes8_inter200_intra50.txt
 # datacenter5_nodes20_inter200_intra50.txt
 # weight1.txt datacenter5_nodes4_inter200_intra50.txt

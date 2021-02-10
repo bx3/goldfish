@@ -119,17 +119,19 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
         for v in node.peers:
             # peer = nodes[v]
             peer = graph[v]
+            rel_time = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
+            if rel_time < MISMATCH:
+                rel_time = 0
+
             if peer.from_whom != i:
                 # node.views[v] = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
-                rel_time = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
-                if rel_time < MISMATCH:
-                    rel_time = 0
                 time_tables[i][v].append(rel_time) #node.views[v]
                 abs_time_tables[i][v].append(peer.recv_time + node.node_delay + ld[v][i])
                 # safety check
                 print_debug(i, node, v, peer, ld, time_tables)
             else:
-                time_tables[i][v].append(None) #node.views[v]
+                # TODO should return None
+                time_tables[i][v].append(rel_time) #node.views[v] rel_time
                 abs_time_tables[i][v].append(None)
 
 

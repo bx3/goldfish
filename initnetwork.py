@@ -158,7 +158,7 @@ def GenerateInitialNetwork( NetworkType, num_node, subcommand, out_lim):
     IncomingLimit   =   InitIncomLimit(num_node)
     # G               =   GenerateInitialGraph()
     NodeDelay       =   GenerateInitialDelay(num_node)
-    if subcommand == 'run':
+    if subcommand == 'run-mf' or subcommand == 'run-2hop':
         [OutNeighbor,IncomingNeighbor]     =   GenerateOutNeighbor(out_lim,IncomingLimit, num_node)
     else:
         OutNeighbor = None

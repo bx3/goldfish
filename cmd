@@ -2,8 +2,8 @@
 trap kill_batch INT
 
 if [ $1 = "help" ]; then
-	# echo "./cmd subcommand[run-mf] name[string] seed[int] out_lim[int] num_region[int] useNodeHash[y/n] roundList[intList]"
-	python testbed.py help 1
+	echo "./cmd subcommand[run-mf/run-2hop/complete-graph] seed[int] name[str]"
+	python testbed.py help
 	exit 0
 fi
 
@@ -17,25 +17,27 @@ function kill_batch() {
 }
 
 subcommand=$1
-name=$2
-seed=$3
+seed=$2
+name=$3
 out_lim=$4
 num_region=$5
 use_node_hash=$6
 
 record_round="${@:7}"
 
-dirname="${name}_seed${seed}"
+dirname="${name}-seed${seed}"
 dirpath="analysis/$dirname"
 mkdir $dirpath
 cp *.py $dirpath
 
 # run experiment
-if [ ${subcommand} = 'run' ]; then 
-	python testbed.py run ${seed} ${dirpath} ${out_lim} ${num_region} ${use_node_hash} ${record_round}
-else
-	python testbed.py complete_graph ${seed} ${dirpath} ${out_lim} ${use_node_hash} ${record_round}
-fi
+python testbed.py ${subcommand} ${seed} ${dirpath} ${out_lim} ${num_region} ${use_node_hash} ${record_round}
+
+#if [ ${subcommand} = 'run' ]; then 
+	#python testbed.py run ${seed} ${dirpath} ${out_lim} ${num_region} ${use_node_hash} ${record_round}
+#else
+	#python testbed.py complete_graph ${seed} ${dirpath} ${out_lim} ${use_node_hash} ${record_round}
+#fi
 retval=$?
 if [ "$retval" -ne 0 ]; then
 	echo "simulation bug. Exit"

@@ -28,13 +28,30 @@ class MF_tester:
         self.tol_obj = 0.001
         self.identity_map = {i: i for i in range(L)}
         print('T', self.T, 'N', self.N, 'L', self.L)
+        self.H = None
 
-    def construct_data(self):
+    def construct_H(self, method):
+        if method == 'unif':
+            H = np.random.rand(self.L, self.N) * self.H_mean 
+            return H
+        elif method == 'log-unif':
+            H = np.exp(np.random.uniform(0, 4, (self.L, self.N)))
+            mean = np.mean(H)
+            H = H /mean * self.H_mean/2
+            print('H', H)
+            plt.hist(H.flatten(), alpha=0.5)
+            plt.show()
+            return H
+        else:
+            print('Error. Unknown H-dist', method)
+            sys.exit(1)
+
+    def construct_data(self, method):
         W = np.zeros((self.T, self.L))
         for i in range(self.T):
             j = np.random.randint(self.L)
             W[i,j] = 1
-        H = np.random.rand(self.L, self.N) * self.H_mean 
+        H = self.construct_H(method)
         X = W.dot(H)
         return X, W, H
 
@@ -78,8 +95,8 @@ class MF_tester:
         # W_out = X.dot(inverse_H)
         return W_out
 
-    def online_test_mf(self, max_iter, num_append, std):
-        X, W_ref, H_ref = self.construct_data()
+    def online_test_mf(self, max_iter, num_append, std, method):
+        X, W_ref, H_ref = self.construct_data(method)
         X_noise = self.add_noise(X, std)
         W_scores = []
         H_scores = []

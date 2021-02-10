@@ -46,15 +46,22 @@ def get_score(table, compose, num_msg):
     best_times = table[compose[0]].copy()
     for peer in compose[1:]:
         peer_times = table[peer]
-        # print(peer_times)
         for i in range(num_msg):
             if peer_times[i] is not None:
                 if (best_times[i] is None) or best_times[i] > peer_times[i]:
                     best_times[i] = peer_times[i]
-
+    
     # print('best', best_times)
-    sorted_best_time = sorted(best_times)
-    return sorted_best_time[int(num_msg*9.0/10)-1]
+    te = []
+    for t in best_times:
+        if t is not None:
+            te.append(t)
+    sorted_best_time = sorted(te)
+    index = int(len(sorted_best_time)*9.0/10)-1
+    if index >= len(sorted_best_time) or index == -1:
+        print(best_times)
+        print(index, len(sorted_best_time))
+    return sorted_best_time[index]
 
 class Selector:
     def __init__(self, u, is_adv, curr_outs, curr_ins, pools):

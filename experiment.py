@@ -25,7 +25,7 @@ import solver
 from multiprocessing.pool import Pool
 
 class Experiment:
-    def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, num_region, name, sybils, window):
+    def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, num_region, name, sybils, window, method):
         self.nh = node_hash
         self.ld = link_delay
         self.nd = node_delay
@@ -51,6 +51,7 @@ class Experiment:
         self.window = window 
 
         self.broad_nodes = [] # hist of broadcasting node
+        self.method = method
 
         # log setting
         self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
@@ -269,7 +270,7 @@ class Experiment:
             network_state.reset(self.num_node, self.in_lim)
 
 
-            if config.use_matrix_completion:
+            if self.method == 'mf-bandit':
                 if epoch-self.window in record_epochs:
                     self.take_snapshot(epoch-self.window)
                 if epoch-self.window > max_epoch:
@@ -321,7 +322,7 @@ class Experiment:
                 # updates connections
                 ins_conn = self.update_conns(outs_conns)
 
-            else:
+            elif self.method == '2hop':
                 # 1,2,3 hop selection
                 if epoch in record_epochs:
                     self.take_snapshot(epoch)
@@ -344,6 +345,9 @@ class Experiment:
                 ins_conn = self.update_conns(outs_conns)
                 # self.check()
                 self.update_selectors(outs_conns, ins_conn)
+            else:
+                print('Error. Unknown method', self.method)
+                sys.exit(1)
 
             print('\t\t [ epoch', epoch, 'end', round(time.time() - epoch_start, 2), ']')
             # print(epoch, len(self.selectors[0].seen), sorted(self.selectors[0].seen))
