@@ -21,7 +21,7 @@ class MF_tester:
         self.L = L
         self.num_repeat = num
         self.H_mean = 100
-        self.rho_H =  0 #0.1 
+        self.rho_H =  0.1 
         self.rho_W = 0
         self.filepath = 'analysis/tester/' + out_name
         self.num_alt = 5000
@@ -29,6 +29,28 @@ class MF_tester:
         self.identity_map = {i: i for i in range(L)}
         print('T', self.T, 'N', self.N, 'L', self.L)
         self.H = None
+
+        self.interval_1D = 33
+        self.region1D_map = {}
+        num_nodes_per_region = self.N / self.L
+        for i in range(self.N):
+            self.region1D_map[i] = int(i/num_nodes_per_region)
+        # print(self.region1D_map)
+
+    def convert_1D_time(self, r1, r2):
+        return abs(r1-r2) * self.interval_1D
+
+    def construct_1D_linear_H(self):
+        H = np.zeros((self.L, self.N))
+        
+        for l in range(self.L):
+            for i in range(self.N):
+                node_region = self.region1D_map[i]
+                t = self.convert_1D_time(l, node_region)
+                H[l, i] = t
+        print("1D linear H")
+        print_mat(H)
+        return H
 
     def construct_H(self, method):
         if method == 'unif':
@@ -38,9 +60,12 @@ class MF_tester:
             H = np.exp(np.random.uniform(0, 4, (self.L, self.N)))
             mean = np.mean(H)
             H = H /mean * self.H_mean/2
-            print('H', H)
-            plt.hist(H.flatten(), alpha=0.5)
-            plt.show()
+            # print('H', H)
+            # plt.hist(H.flatten(), alpha=0.5)
+            # plt.show()
+            return H
+        elif method == '1D-linear':
+            H = self.construct_1D_linear_H()
             return H
         else:
             print('Error. Unknown H-dist', method)
@@ -112,7 +137,18 @@ class MF_tester:
         W_scores.append(W_score)
         H_scores.append(H_score)
         print('iter', 0, 'W_score', W_score)
+
+        print_mat(X_input)
+        print()
         print_mat(H_est)
+        print()
+        print_mat(W_est)
+        print()
+        print_mat(W_ref)
+
+        # print(W_score)
+        # sys.exit(2)
+
         print(match_map)
         print()
         for i in range(1, max_iter):
@@ -120,22 +156,33 @@ class MF_tester:
             X_input, W_ref = self.rolling_X(X_input, W_ref, H_ref, num_append, std)
             W_input = self.set_W(W_est, H_est, X_input, num_append)
             W_est, H_est = self.single_mf(X_input, W_input, H_est, False)
+            
             W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
-
             if prev_map != match_map:
                 print("\033[93m" + 'map change' + "\033[0m")
             prev_map = match_map
 
-            W_score = self.compare_W(W_ref, W_est, match_map)
-
+            
             W_scores.append(W_score)
             H_scores.append(H_score)
             
             # reorder correct match
             print('iter', i, 'H_est', W_score)
             print_mat(H_est)
+            print()
+            print_mat(W_est)
+            print()
+
+            print_mat(X_input)
+            print()
+            print_mat(W_est.dot(H_est))
+            print()
+
             print(match_map)
             print()
+            
+
+
 
         # W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
         # print('print', W_score, H_score)
@@ -143,17 +190,24 @@ class MF_tester:
 
         iters = [i for i in range(max_iter)]
         fig, axs = plt.subplots(2)
-        axs[0].scatter(iters, W_scores)
-        axs[0].set_title(self.filepath)
-        axs[1].scatter(iters, H_scores)
-
+        axs[0].scatter(iters, W_scores, c='r', s=10)
+        axs[0].set_title(self.filepath + ' W best perm score')
+        axs[1].scatter(iters, H_scores, s=10)
+        axs[1].set_title('H best perm score')
+        plt.tight_layout()
         plt.show()
         fig.savefig(self.filepath)
 
     def single_mf(self, X_input, prev_W, prev_H, init_new):
         W_init, H_init = None, None
         if init_new:
-            W_init, H_init = nndsvd.initial_nndsvd(X_input, self.L, 10)  
+            print('nndsvd')
+            # W_init, H_init = nndsvd.initial_nndsvd(X_input, self.L, 10)  
+
+            W_init, S, H_init = svds(X_input, self.L)
+            I = np.sign(W_init.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
+            W_init = W_init.dot(np.diag(I))
+            H_init = np.transpose((H_init.T).dot(np.diag(S*I)))
         else:
             W_init, H_init = prev_W, prev_H
 
@@ -213,7 +267,7 @@ class MF_tester:
         num_node = table.shape[0]
         nodes = [i for i in range(num_node)]
         best_comb = None
-        best = 999
+        best = 999999
         hist = {}
         for comb in itertools.permutations(nodes, num_node):
             score = 0

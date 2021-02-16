@@ -201,8 +201,8 @@ def test_mf():
 def test_mf_online():
     if len(sys.argv) < 9:
         print('Error. Invalud arguments')
-        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] std[float] H-dist[unif,log-unif')
-        print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10')
+        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] std[float] H-dist[unif,log-unif,1D-linear]')
+        print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10 log-unif')
         sys.exit(1)
     name = sys.argv[3]
     N = int(sys.argv[4])
