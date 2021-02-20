@@ -10,9 +10,9 @@ import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
 def run_pgd_nmf(i, slots, N, L, W, H, new_msgs_ind, init_new):
-    X, max_time = construct_table(N, slots)
-    W_init, H_init = init_matrix(L, X, W, H, new_msgs_ind, init_new)
-    W_est, H_est, opt = alternate_minimize(W_init, H_init, X, L, None, i, 
+    X, mask, max_time = construct_table(N, slots)
+    W_init, H_init = init_matrix(L, X, mask, W, H, new_msgs_ind, init_new)
+    W_est, H_est, opt = alternate_minimize(W_init, H_init, X, mask, L, None, i, 
             config.num_alt, config.tol_obj, config.rho_W, config.rho_H)
 
     return W_est, H_est, opt
@@ -22,10 +22,10 @@ def print_mat(A):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(L, X, W, H, new_msg_start, init_new):
+def init_matrix(L, X, mask, W, H, new_msg_start, init_new):
     if init_new : #or (not config.feedback_WH) or (not config.prior_WH)
         if config.init_nndsvd:
-            A, B = nndsvd.initial_nndsvd(X, L, config.nndsvd_seed)
+            A, B = nndsvd.initial_nndsvd(X*mask, L, config.nndsvd_seed)
         else:
             A, S, B = svds(X, L)
             I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
@@ -55,16 +55,18 @@ def init_matrix(L, X, W, H, new_msg_start, init_new):
 def construct_table(N, slots):
     T = len(slots)
     X = np.zeros((T, N)) 
+    mask = np.zeros((T, N))
     i = 0 # row
 
     max_time = 0 
     for slot in slots:
         for p, t in slot:
             X[i, p] = t
+            mask[i, p] = 1
             if max_time < t:
                 max_time = t
         i += 1
-    return X, max_time
+    return X, mask, max_time
 
 
 
@@ -113,14 +115,12 @@ def mc_obj(X, I, W, H):
     return 0.5 * np.linalg.norm(X - np.multiply(np.dot(W, H.T), I))**2
 
 # mask out non date entry, W is A, H is B
-def alternate_minimize(W_init, H_init, X, L, prev_H, node_id, 
+def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id, 
         num_alt, tol_obj, rho_W, rho_H):
     start = time.time()
     W = W_init
     H = H_init
-    I = X > 0 
     P = (W.dot(H) - X) * I 
-
     num_row = W.shape[0]
 
     prev_opt = 9999

@@ -9,48 +9,233 @@ from sklearn.decomposition import NMF
 from numpy import linalg as LA
 import itertools
 import matplotlib.pyplot as plt
+from collections import defaultdict
 
-def print_mat(A):
+# def print_mat(A):
+    # for i in range(A.shape[0]):
+        # text = ["{:4d}".format(int(a)) for a in A[i]]
+        # line = ' '.join(text)
+        # print('[' + line + ' ]')
+
+def print_mat(A, is_float):
     for i in range(A.shape[0]):
-        print(list(np.round(A[i], 0)))
+        if not is_float:
+            text = ["{:4d}".format(int(a)) for a in A[i]]
+        else:
+            text = ["{:5.2f}".format(a) for a in A[i]]
+        line = ' '.join(text)
+        print('[' + line + ' ]')
+def print_two_mat(A, B, is_float):
+    for i in range(A.shape[0]):
+        if is_float:
+            text = ["{:5.2f}".format(a) for a in A[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in A[i]]
+
+        line = ' '.join(text)
+        if is_float:
+            text = ["{:5.2f}".format(a) for a in B[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in B[i]]
+
+        line2 = ' '.join(text)
+        print('[' + line + ' ] \t\t' + '[' + line2 + ' ]')
+
+
 
 class MF_tester:
-    def __init__(self, T, N, L, num, out_name):
+    def __init__(self, T, N, L, num, out_name, add_new_data_type, num_mask_per_row, method, init_method):
         self.T = T
         self.N = N
         self.L = L
         self.num_repeat = num
         self.H_mean = 100
-        self.rho_H =  0.1 
+        self.rho_H = 0.00001 
         self.rho_W = 0
         self.filepath = 'analysis/tester/' + out_name
         self.num_alt = 5000
         self.tol_obj = 0.001
         self.identity_map = {i: i for i in range(L)}
-        print('T', self.T, 'N', self.N, 'L', self.L)
-        self.H = None
-
-        self.interval_1D = 33
-        self.region1D_map = {}
-        num_nodes_per_region = self.N / self.L
-        for i in range(self.N):
-            self.region1D_map[i] = int(i/num_nodes_per_region)
-        # print(self.region1D_map)
-
-    def convert_1D_time(self, r1, r2):
-        return abs(r1-r2) * self.interval_1D
-
-    def construct_1D_linear_H(self):
-        H = np.zeros((self.L, self.N))
+        self.init_method = init_method
         
-        for l in range(self.L):
-            for i in range(self.N):
-                node_region = self.region1D_map[i]
-                t = self.convert_1D_time(l, node_region)
-                H[l, i] = t
-        print("1D linear H")
-        print_mat(H)
-        return H
+        self.X_add_type = add_new_data_type
+        self.num_mask_per_row = num_mask_per_row
+
+        self.inter_lat = 33 
+        self.H_ref = self.construct_H(method)
+        print('T', self.T, 'N', self.N, 'L', self.L, 
+                'inter latency', self.inter_lat, 'H mean', np.mean(self.H_ref),
+                'mask per row', self.num_mask_per_row)
+
+
+    def start_mf_online(self, max_iter, num_append, std):
+        X, X_noise, W_ref = self.construct_data(std)
+        H_ref = self.H_ref
+        W_est, H_est = None, None
+        W_scores = []
+        H_scores = []
+        print('ref H')
+        print_mat(H_ref, False)
+        print()
+
+        X_input, mask_input = self.random_mask(self.num_mask_per_row, X_noise)
+
+        if self.init_method == 'algo':
+            W_est, H_est = self.single_mf(X_input, mask_input, None, None, True)
+        elif self.init_method == 'ref':
+            W_est = W_ref.copy() 
+            H_est = H_ref.copy() + np.random.normal(0, 0.0001, size=(self.L, self.N))
+
+        H_mean = H_est.copy()
+        W_input = W_est
+        H_input = H_est
+
+        prev_map = {}
+
+        W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
+        prev_map = match_map
+
+        for i in range(0, max_iter):
+            W_est, H_est = self.single_mf(X_input, mask_input, W_input, H_input, False)
+            H_mean, sample_mean = self.update_H_mean(W_est, X_input, mask_input)
+            
+            W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
+            if prev_map != match_map:
+                print("\033[93m" + 'map change' + "\033[0m")
+            prev_map = match_map
+            
+            W_scores.append(W_score)
+            H_scores.append(H_score)
+            
+            # reorder correct match
+            print('\t\t\t ********************************************************')
+            print('iter', i, 'score', W_score, 'H_est, H_ref', W_est.shape)
+            print_two_mat(H_re, H_ref, False)
+            print('iter', i, 'W est')
+            print_two_mat(W_est, W_ref, True)
+
+            print('iter', i, 'X_input - W_est H_est')
+            print_two_mat((X_input- W_est.dot(H_est))*mask_input, mask_input, False)
+            print('iter', i, 'H_re H_ref')
+            print_two_mat(H_re, H_ref, False)
+
+            X_input, W_ref, W_input, mask_input, H_input = self.gen_new_msg(
+                    self.X_add_type, X_input, mask_input,
+                    W_est, W_ref, H_est, H_ref, num_append, std)
+            print('iter', i, 'avg filled H_input', 'sample ean', sample_mean)
+            print_mat(H_input, False)
+
+        return W_scores, H_scores
+
+        
+
+    def random_mask(self, num_entry_per_row, X):
+        if num_entry_per_row == 0:
+            return X, np.ones(X.shape)
+
+        num_r, num_c = X.shape
+        mask = np.ones((num_r, num_c))
+        all_nodes = [i for i in range(num_c)]
+        for i in range(num_r):
+            np.random.shuffle(all_nodes)
+            missings = all_nodes[:num_entry_per_row]
+            for j in missings:
+                X[i,j] = 0
+                mask[i,j] = 0 
+        return X, mask
+
+    def gen_new_msg(self, method, X_input, mask_input, W_est, W_ref, H_est, H_ref, num_msg, std):
+        if method == 'append':
+            X_input_n, W_ref, mask_input_n = self.append_X(
+                    X_input, mask_input, W_ref, H_ref, num_msg, std)
+        elif method == 'rolling':
+            X_input_n, W_ref, mask_input_n = self.rolling_X(
+                    X_input, mask_input, W_ref, H_ref, num_msg, std)
+        else:
+            print('Error. Unknown message batch method', method)
+            sys.exit(1)
+
+        W_input_n = self.get_new_W(W_est, H_est, X_input, num_msg)
+        H_input_n = self.get_new_H(H_est, X_input, mask_input, W_est)
+        return X_input_n, W_ref, W_input_n, mask_input_n, H_input_n
+
+    def append_X(self, X, mask, W, H_ref, num_msg, std):
+        new_msgs = np.zeros((num_msg, self.L))
+        for i in range(num_msg):
+            j = np.random.randint(self.L)
+            new_msgs[i,j] = 1
+        num_row =  self.T + num_msg
+
+        W_roll = np.vstack((W, new_msgs))
+
+        X_new = new_msgs.dot(H_ref) + np.random.normal(0, std, size=(num_msg, self.N)) 
+        X_new[X_new<0] = 0
+        X_new, mask_new = self.random_mask(self.num_mask_per_row, X_new)
+
+        X_roll = np.vstack((X, X_new))
+        mask = np.vstack((mask, mask_new))
+
+        self.T += num_msg
+        return X_roll, W_roll, mask
+
+    # H_ref used for generating new rows
+    def rolling_X(self, X, mask, W, H_ref, num_msg, std):
+        new_msgs = np.zeros((num_msg, self.L))
+        for i in range(num_msg):
+            j = np.random.randint(self.L)
+            new_msgs[i,j] = 1
+        
+        W_roll = np.zeros((self.T, self.L))
+        W_roll[:self.T-num_msg] = W[num_msg:]
+        W_roll[self.T-num_msg:] = new_msgs
+
+        X_new = new_msgs.dot(H_ref) + np.random.normal(0, std, size=(num_msg, self.N)) 
+        X_new[X_new<0] = 0
+        X_new, mask_new = self.random_mask(self.num_entry_per_row, X_new)
+
+        X_roll = np.zeros(X.shape)
+        X_roll[:self.T-num_msg] = X[num_msg:]
+        X_roll[self.T-num_msg:] = X_new
+
+        mask_roll = np.zeros(X.shape)
+        mask_roll[:self.T-num_msg] = mask[num_msg:]
+        mask_roll[self.T-num_msg:] = mask_new
+        return X_roll, W_roll, mask
+
+    def get_new_W(self, W_est, H_est, X, num_msg):
+        if self.X_add_type == 'rolling':
+            W_out = np.zeros(W_est.shape)
+            new_noise = np.random.rand(num_msg, W_est.shape[1])
+            W_out[:self.T-num_msg] = W_est[num_msg:]
+            W_out[self.T-num_msg:] = new_noise
+        elif self.X_add_type == 'append':
+            new_noise = np.random.rand(num_msg, W_est.shape[1])
+            W_out = np.vstack((W_est, new_noise))
+        return W_out
+
+    def get_new_H(self, H_est, X_input, mask, W_est):
+        T = mask.shape[0]
+        L = H_est.shape[0]
+        N = mask.shape[1]
+
+        H_missing = np.ones((L, N))
+        for m in range(T):
+            W_row = W_est[m]
+            mask_row = mask[m]
+            l = np.argmax(W_row)
+            for j, t in enumerate(mask_row):
+                if t != 0:
+                    H_missing[l, j] = 0
+        H_avg = np.sum(X_input * mask) / np.sum(mask)
+        missings = []
+        for l in range(L):
+            for i in range(N):
+                if H_missing[l,i] == 1:
+                    missings.append(str((l,i)))
+                    H_est[l,i] = H_avg
+
+        print('set missing', ' '.join(missings))
+        return H_est
 
     def construct_H(self, method):
         if method == 'unif':
@@ -65,154 +250,101 @@ class MF_tester:
             # plt.show()
             return H
         elif method == '1D-linear':
-            H = self.construct_1D_linear_H()
-            return H
+            return self.construct_linear_H(self.inter_lat)
+        elif method == 'datacenter':
+            return self.construct_datacenter_H(self.inter_lat)
         else:
             print('Error. Unknown H-dist', method)
             sys.exit(1)
 
-    def construct_data(self, method):
+    def convert_1D_time(self, r1, r2, inter_lat):
+        return abs(r1-r2) * inter_lat
+
+    def construct_linear_H(self, inter_lat):
+        H = np.zeros((self.L, self.N))
+        node_region = {}
+        num_nodes_per_region = self.N / self.L
+        for i in range(self.N):
+            node_region[i] = int(i/num_nodes_per_region)
+        
+        for l in range(self.L):
+            for i in range(self.N):
+                H[l, i] = self.convert_1D_time(l, node_region[i], inter_lat)
+
+        mean_H = np.mean(H)
+        H = H * 50.0/ mean_H
+        print("1D linear H")
+        print_mat(H, False)
+        return H
+
+    def construct_datacenter_H(self, inter_lat):
+        H = np.zeros((self.L, self.N)) 
+        node_region = {}
+        num_node_per_region = self.N / self.L
+        for i in range(self.N):
+            node_region[i] = int(i / num_node_per_region)
+        for l in range(self.L):
+            for i in range(self.N):
+                if l == node_region[i]:
+                    H[l, i] = 0 
+                else:
+                    H[l, i] = inter_lat
+        print("datacenter H")
+        print_mat(H)
+        return H
+
+    # std is noise standard deviation
+    def construct_data(self, std):
         W = np.zeros((self.T, self.L))
         for i in range(self.T):
             j = np.random.randint(self.L)
-            W[i,j] = 1
-        H = self.construct_H(method)
-        X = W.dot(H)
-        return X, W, H
+            W[i,j] = 1.0
+        X = W.dot(self.H_ref)
+
+        X_noised = X + np.random.normal(0, std, size=(self.T, self.N)) 
+        X_noised[X_noised<0] = 0
+        return X, X_noised, W
 
     def add_noise(self, X, std):
         X_noise = X + np.random.normal(0, std, size=(self.T, self.N)) 
         X_noise[X_noise<0] = 0
         return X_noise
 
-    # H_ref used for generating new rows
-    def rolling_X(self, X, W, H_ref, num_msg, std):
-        new_msgs = np.zeros((num_msg, self.L))
+    def update_H_mean(self, W_est, X_input, mask):
+        num_msg = X_input.shape[0]
+        num_node = X_input.shape[1]
+        num_region = W_est.shape[1]
+
+        H_mean_data = defaultdict(list)
+        sum_sample= np.sum(X_input) 
+        num_sample = np.sum(mask) 
         for i in range(num_msg):
-            j = np.random.randint(self.L)
-            new_msgs[i,j] = 1
-        
-        W_roll = np.zeros((self.T, self.L))
-        W_roll[:self.T-num_msg] = W[num_msg:]
-        W_roll[self.T-num_msg:] = new_msgs
+            X_row = X_input[i]
+            l = np.argmax(W_est[i])
+            for j, t in enumerate(X_row):
+                if mask[l,j] != 0:
+                    H_mean_data[(l,j)].append(t)
+        sample_mean = sum_sample / num_sample
+        H_mean = np.ones((num_region, num_node)) * sample_mean
+        for pair, samples in H_mean_data.items():
+            l,j = pair
+            H_mean[l,j] = sample_mean   
+        return H_mean, sample_mean
 
-        X_new = new_msgs.dot(H_ref) + np.random.normal(0, std, size=(num_msg, self.N)) 
-        X_new[X_new<0] = 0
-
-        X_roll = np.zeros(X.shape)
-        X_roll[:self.T-num_msg] = X[num_msg:]
-        X_roll[self.T-num_msg:] = X_new
-
-        return X_roll, W_roll
-
-    def set_W(self, W_est, H_est, X, num_msg):
-        # # random
-        # W_out = np.random.rand(W_est.shape[0], W_est.shape[1])
-
-        # # partial random
-        W_out = np.zeros(W_est.shape)
-        new_noise = np.random.rand(num_msg, W_est.shape[1])
-        W_out[:self.T-num_msg] = W_est[num_msg:]
-        W_out[self.T-num_msg:] = new_noise
-
-        # te = inv(H_est.dot(H_est.T))
-        # inverse_H = H_est.T.dot(te)
-        # W_out = X.dot(inverse_H)
-        return W_out
-
-    def online_test_mf(self, max_iter, num_append, std, method):
-        X, W_ref, H_ref = self.construct_data(method)
-        X_noise = self.add_noise(X, std)
-        W_scores = []
-        H_scores = []
-        print('num_append', num_append)
-        print('ref H')
-        print_mat(H_ref)
-        print()
-        X_input = X_noise
-        W_est, H_est = self.single_mf(X_input, None, None, True)
-        W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
-        prev_map = match_map
-
-        W_scores.append(W_score)
-        H_scores.append(H_score)
-        print('iter', 0, 'W_score', W_score)
-
-        print_mat(X_input)
-        print()
-        print_mat(H_est)
-        print()
-        print_mat(W_est)
-        print()
-        print_mat(W_ref)
-
-        # print(W_score)
-        # sys.exit(2)
-
-        print(match_map)
-        print()
-        for i in range(1, max_iter):
-            # correct answer
-            X_input, W_ref = self.rolling_X(X_input, W_ref, H_ref, num_append, std)
-            W_input = self.set_W(W_est, H_est, X_input, num_append)
-            W_est, H_est = self.single_mf(X_input, W_input, H_est, False)
-            
-            W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
-            if prev_map != match_map:
-                print("\033[93m" + 'map change' + "\033[0m")
-            prev_map = match_map
-
-            
-            W_scores.append(W_score)
-            H_scores.append(H_score)
-            
-            # reorder correct match
-            print('iter', i, 'H_est', W_score)
-            print_mat(H_est)
-            print()
-            print_mat(W_est)
-            print()
-
-            print_mat(X_input)
-            print()
-            print_mat(W_est.dot(H_est))
-            print()
-
-            print(match_map)
-            print()
-            
-
-
-
-        # W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
-        # print('print', W_score, H_score)
-        # print_mat(H_re)
-
-        iters = [i for i in range(max_iter)]
-        fig, axs = plt.subplots(2)
-        axs[0].scatter(iters, W_scores, c='r', s=10)
-        axs[0].set_title(self.filepath + ' W best perm score')
-        axs[1].scatter(iters, H_scores, s=10)
-        axs[1].set_title('H best perm score')
-        plt.tight_layout()
-        plt.show()
-        fig.savefig(self.filepath)
-
-    def single_mf(self, X_input, prev_W, prev_H, init_new):
+    def single_mf(self, X_input, mask, prev_W, prev_H, init_new):
         W_init, H_init = None, None
         if init_new:
             print('nndsvd')
-            # W_init, H_init = nndsvd.initial_nndsvd(X_input, self.L, 10)  
-
-            W_init, S, H_init = svds(X_input, self.L)
-            I = np.sign(W_init.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
-            W_init = W_init.dot(np.diag(I))
-            H_init = np.transpose((H_init.T).dot(np.diag(S*I)))
+            W_init, H_init = nndsvd.initial_nndsvd(X_input, self.L, 10)  
+            # W_init, S, H_init = svds(X_input, self.L)
+            # I = np.sign(W_init.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
+            # W_init = W_init.dot(np.diag(I))
+            # H_init = np.transpose((H_init.T).dot(np.diag(S*I)))
         else:
             W_init, H_init = prev_W, prev_H
-
+    
         W_est, H_est, opt = solver.alternate_minimize(
-                W_init, H_init, X_input, 
+                W_init, H_init, X_input, mask,
                 self.L, None, 0, 
                 self.num_alt, self.tol_obj, self.rho_W, self.rho_H)
         print('opt', opt)
@@ -366,4 +498,9 @@ class MF_tester:
         return W, H
 
         
+            # if  == 'rolling':
+                # X_input, W_ref = self.rolling_X(X_input, W_ref, H_est, H_ref, num_append, std)
+            # elif self.X_add_type == 'append':
+                # X_input, W_ref = self.append_X(X_input, W_ref, H_ref, num_append, std)
+            # W_input = self.get_new_W(W_est, H_est, X_input, num_append)
 

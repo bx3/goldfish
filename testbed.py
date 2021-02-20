@@ -16,6 +16,7 @@ import readfiles
 import math
 import tester
 from experiment import Experiment
+import matplotlib.pyplot as plt
 
 def run_mf():
     subcommand = sys.argv[1]
@@ -199,30 +200,72 @@ def test_mf():
     mf_tester.test_mf()
 
 def test_mf_online():
-    if len(sys.argv) < 9:
+    if len(sys.argv) < 13:
         print('Error. Invalud arguments')
-        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] std[float] H-dist[unif,log-unif,1D-linear]')
-        print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10 log-unif')
+        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] noise[float] H-method[unif,log-unif,1D-linear] add-method[rolling,append] num_mask[int] init-method[algo,ref]')
+        print('example: /testbed.py mf-online 1 name=rand-init node=20 region=5 new_msgs=1 H-method=1D-linear add-method=append num_mask=0 noise=0 max_iter=100 init-method=ref')
+
+        # print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10 log-unif append 0')
         sys.exit(1)
-    name = sys.argv[3]
-    N = int(sys.argv[4])
-    L = int(sys.argv[5])
-    max_iter = int(sys.argv[6])
-    num_msg = int(sys.argv[7])
-    std = float(sys.argv[8])
-    dist = sys.argv[9]
+
+    for arg in sys.argv[3:]:
+        if 'noise=' in arg:
+            std = float(arg[6:])
+        elif 'node=' in arg:
+            N = int(arg[5:])
+        elif 'region=' in arg:
+            L = int(arg[7:])
+        elif 'new_msgs=' in arg:
+            num_msg = int(arg[9:])
+        elif 'H-method=' in arg:
+            H_method = arg[9:]
+        elif 'add-method=' in arg:
+            add_method = arg[11:]
+        elif 'max_iter=' in arg:
+            max_iter = int(arg[9:])
+        elif 'num_mask=' in arg:
+            num_mask_per_row = int(arg[9:])
+        elif 'name=' in arg:
+            name = arg[5:]
+        elif 'init-method=' in arg:
+            init_method = arg[12:]
+        else:
+            print('Error. Unknown arg', arg)
+            sys.exit(1)
+    # name = sys.argv[3]
+    # N = int(sys.argv[4])
+    # L = int(sys.argv[5])
+    # max_iter = int(sys.argv[6])
+    # num_msg = int(sys.argv[7])
+    # std = float(sys.argv[8])
+    # H_method = sys.argv[9]
+    # new_data = sys.argv[10]
+    # num_mask_per_row = int(sys.argv[11])
+
+    exp_name = ('node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
+            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+str(num_mask_per_row)+'mask'+'-'+name)
 
     T = int(math.ceil(L * math.log(N)))
-    online_mf_test = tester.MF_tester(T, N, L, max_iter, name)
+    mf_online_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
+            H_method, init_method)
+    W_scores, H_scores = mf_online_exp.start_mf_online(max_iter, num_msg, std)
 
-    online_mf_test.online_test_mf(max_iter, num_msg, std, dist)
+    iters = [i for i in range(len(W_scores))]
+    fig, axs = plt.subplots(2)
+    axs[0].scatter(iters, W_scores, c='r', s=10)
+    axs[0].set_title(exp_name + '\n'+'W best perm score')
+    axs[1].scatter(iters, H_scores, s=10)
+    axs[1].set_title('H best perm score')
+    plt.tight_layout()
+    plt.show()
+    fig.savefig(mf_online_exp.filepath)
 
 def print_help():
     print('subcommand')
     print('\trun-2hop       seed[int] output_dir[str] num_out[int] num_msg[int] use_node_hash[y/n] rounds[intList]')
     print('\trun-mf         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
     print('\tcomplete-graph seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] 1')
-    print('\tmf-online      seed[int] output[str] N[int] L[int] max_iter[int] new_msgs[int] std[float] H-dist[unif,log-unif]')
+    print('\tmf-online      seed[int] help')
     print('\ttest_mf        N[int] L[int] std[float] num_exp[int]')
     print('Note. Output is stored at analysis/output_dir')
 
