@@ -153,7 +153,12 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
         t_H = 0.25 * LA.norm(grad_H, 'fro')**2 / LA.norm( W.dot(grad_H) * I, 'fro')**2
         # t_H = np.trace(P.T.dot(W).dot(grad_H)) / np.trace(grad_H.T.dot(W.T).dot(W).dot(grad_H))
         # # t_H = 1/ LA.norm(A.T.dot(A), 'fro')**2
-        H = H - t_H * (grad_H + rho_H*(H ))  
+
+        # l1 norm derivative of H row
+        # H_l1_deri = 2*(grad_H > 0) - 1
+
+
+        H = H - t_H * (grad_H + rho_H*(H))  
         # H = update_right(X, I, W).T
         # H = H - grad(lambda H: mc_obj(X, I, W, H))(H)
         H[H<0] = 0 

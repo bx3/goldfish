@@ -11,38 +11,6 @@ import itertools
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-# def print_mat(A):
-    # for i in range(A.shape[0]):
-        # text = ["{:4d}".format(int(a)) for a in A[i]]
-        # line = ' '.join(text)
-        # print('[' + line + ' ]')
-
-def print_mat(A, is_float):
-    for i in range(A.shape[0]):
-        if not is_float:
-            text = ["{:4d}".format(int(a)) for a in A[i]]
-        else:
-            text = ["{:5.2f}".format(a) for a in A[i]]
-        line = ' '.join(text)
-        print('[' + line + ' ]')
-def print_two_mat(A, B, is_float):
-    for i in range(A.shape[0]):
-        if is_float:
-            text = ["{:5.2f}".format(a) for a in A[i]]
-        else:
-            text = ["{:4d}".format(int(a)) for a in A[i]]
-
-        line = ' '.join(text)
-        if is_float:
-            text = ["{:5.2f}".format(a) for a in B[i]]
-        else:
-            text = ["{:4d}".format(int(a)) for a in B[i]]
-
-        line2 = ' '.join(text)
-        print('[' + line + ' ] \t\t' + '[' + line2 + ' ]')
-
-
-
 class MF_tester:
     def __init__(self, T, N, L, num, out_name, add_new_data_type, num_mask_per_row, method, init_method):
         self.T = T
@@ -50,12 +18,12 @@ class MF_tester:
         self.L = L
         self.num_repeat = num
         self.H_mean = 100
-        self.rho_H = 0.00001 
+        self.rho_H = 0
         self.rho_W = 0
         self.filepath = 'analysis/tester/' + out_name
         self.num_alt = 5000
-        self.tol_obj = 0.001
-        self.identity_map = {i: i for i in range(L)}
+        self.tol_obj = 0.00001
+
         self.init_method = init_method
         
         self.X_add_type = add_new_data_type
@@ -67,10 +35,23 @@ class MF_tester:
                 'inter latency', self.inter_lat, 'H mean', np.mean(self.H_ref),
                 'mask per row', self.num_mask_per_row)
 
+    # def augment_dim(self, W, H):
+        # T = W.shape[0]
+        # w = np.random.uniform(0, 1, size=(T, 1))
+        # W = np.hstack((W,w))
+        
+        # # h = np.zeros((1, self.N))
+        # h = np.random.uniform(0, self.inter_lat, (1, self.N))
+        # H = np.vstack((H, h))
+        # self.L += 1
+        # return W, H
 
     def start_mf_online(self, max_iter, num_append, std):
         X, X_noise, W_ref = self.construct_data(std)
         H_ref = self.H_ref
+        W_ref, H_ref = self.augment_dim(W_ref, H_ref)
+
+
         W_est, H_est = None, None
         W_scores = []
         H_scores = []
@@ -99,7 +80,7 @@ class MF_tester:
             W_est, H_est = self.single_mf(X_input, mask_input, W_input, H_input, False)
             H_mean, sample_mean = self.update_H_mean(W_est, X_input, mask_input)
             
-            W_score, H_score, _, H_re, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
+            W_score, H_score, _, H_reorder, match_map = self.match_WH(W_est, H_est, W_ref, H_ref) 
             if prev_map != match_map:
                 print("\033[93m" + 'map change' + "\033[0m")
             prev_map = match_map
@@ -109,15 +90,16 @@ class MF_tester:
             
             # reorder correct match
             print('\t\t\t ********************************************************')
-            print('iter', i, 'score', W_score, 'H_est, H_ref', W_est.shape)
-            print_two_mat(H_re, H_ref, False)
+            # print('iter', i, 'score', W_score, 'H_est, H_ref', W_est.shape)
+            # print_two_mat(H_reorder, H_ref, False)
             print('iter', i, 'W est')
-            print_two_mat(W_est, W_ref, True)
+            print_three_mat(W_est, W_ref, self.get_argmax_W(W_est), [True,False,False])
+            print('iter', i, 'H_est H_ref')
+            print_two_mat(H_est, H_ref, False)
 
             print('iter', i, 'X_input - W_est H_est')
-            print_two_mat((X_input- W_est.dot(H_est))*mask_input, mask_input, False)
-            print('iter', i, 'H_re H_ref')
-            print_two_mat(H_re, H_ref, False)
+            print_masked_mat((X_input- W_est.dot(H_est)), mask_input, False)
+            
 
             X_input, W_ref, W_input, mask_input, H_input = self.gen_new_msg(
                     self.X_add_type, X_input, mask_input,
@@ -127,7 +109,6 @@ class MF_tester:
 
         return W_scores, H_scores
 
-        
 
     def random_mask(self, num_entry_per_row, X):
         if num_entry_per_row == 0:
@@ -226,6 +207,7 @@ class MF_tester:
             for j, t in enumerate(mask_row):
                 if t != 0:
                     H_missing[l, j] = 0
+
         H_avg = np.sum(X_input * mask) / np.sum(mask)
         missings = []
         for l in range(L):
@@ -239,15 +221,12 @@ class MF_tester:
 
     def construct_H(self, method):
         if method == 'unif':
-            H = np.random.rand(self.L, self.N) * self.H_mean 
+            H = np.random.rand(self.L, self.N) * self.inter_lat * 2 
             return H
         elif method == 'log-unif':
             H = np.exp(np.random.uniform(0, 4, (self.L, self.N)))
             mean = np.mean(H)
-            H = H /mean * self.H_mean/2
-            # print('H', H)
-            # plt.hist(H.flatten(), alpha=0.5)
-            # plt.show()
+            H = H /mean * self.inter_lat/2
             return H
         elif method == '1D-linear':
             return self.construct_linear_H(self.inter_lat)
@@ -331,15 +310,30 @@ class MF_tester:
             H_mean[l,j] = sample_mean   
         return H_mean, sample_mean
 
+    def row_wise_div(self, H, a):
+        for i in range(H.shape[0]):
+            H[i] = H[i]/a[i]
+        return H
+
     def single_mf(self, X_input, mask, prev_W, prev_H, init_new):
         W_init, H_init = None, None
         if init_new:
-            print('nndsvd')
             W_init, H_init = nndsvd.initial_nndsvd(X_input, self.L, 10)  
+
+            W_init_row_sum = np.max(W_init, axis=1)
+            H_init_row_sum = np.max(H_init, axis=1)
+
+            W_init = self.row_wise_div(W_init, W_init_row_sum)
+            H_init = self.row_wise_div(H_init, H_init_row_sum)
             # W_init, S, H_init = svds(X_input, self.L)
             # I = np.sign(W_init.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
             # W_init = W_init.dot(np.diag(I))
             # H_init = np.transpose((H_init.T).dot(np.diag(S*I)))
+
+            print('nndsvd W_init')
+            print_mat(W_init, True)
+            print('nndsvd H_init')
+            print_mat(H_init, True)
         else:
             W_init, H_init = prev_W, prev_H
     
@@ -379,8 +373,7 @@ class MF_tester:
             re_idx = est_to_ori[i]
             W_re[:, re_idx] = W_est[:, i]
             H_re[re_idx] = H_est[i, :]
-
-        W_score = self.compare_W(W_ref, W_re, self.identity_map)
+        W_score = self.compare_W(W_ref, W_re, {i: i for i in range(self.L)})
         return W_score, H_score, W_re, H_re, est_to_ori
 
     def compare_W(self, W_ref, W_est, est_to_ori):
@@ -449,6 +442,14 @@ class MF_tester:
         H_init = np.random.rand(self.L, self.N) * self.H_mean 
         return W_init, H_init
 
+
+    def get_argmax_W(self, W_est):
+        chosen = np.argmax(W_est, axis=1)
+        W_chosen = np.zeros(W_est.shape)
+        for i, c in enumerate(chosen):
+            W_chosen[i,c] = 1
+        return W_chosen
+
     def debug(W, H, W_est, H_est, X):
         print('W')
         print_mat(W)
@@ -503,4 +504,81 @@ class MF_tester:
             # elif self.X_add_type == 'append':
                 # X_input, W_ref = self.append_X(X_input, W_ref, H_ref, num_append, std)
             # W_input = self.get_new_W(W_est, H_est, X_input, num_append)
+
+# def print_mat(A):
+    # for i in range(A.shape[0]):
+        # text = ["{:4d}".format(int(a)) for a in A[i]]
+        # line = ' '.join(text)
+        # print('[' + line + ' ]')
+
+def print_mat(A, is_float):
+    for i in range(A.shape[0]):
+        if not is_float:
+            text = ["{:4d}".format(int(a)) for a in A[i]]
+        else:
+            text = ["{:5.2f}".format(a) for a in A[i]]
+        line = ' '.join(text)
+        print('[' + line + ' ]')
+def print_masked_mat(A, mask, is_float):
+    for i in range(A.shape[0]):
+        row = A[i]
+        text = []
+        if not is_float:
+            for j in range(len(row)):
+                if mask[i,j] == 1:
+                    text.append("{:4d}".format(int(row[j]))) 
+                elif mask[i,j] == 0:
+                    text.append("{:>4}".format('*')) 
+        else:
+            for j in range(len(row)):
+                if mask[i,j] == 1:
+                    text.append("{:5.2f}".format(int(row[j]))) 
+                elif mask[i,j] == 0:
+                    text.append("{:>5}".format('*')) 
+        line = ' '.join(text)
+        print('[' + line + ' ]')
+
+
+
+def print_two_mat(A, B, is_float):
+    for i in range(A.shape[0]):
+        if is_float:
+            text = ["{:5.2f}".format(a) for a in A[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in A[i]]
+
+        line = ' '.join(text)
+        if is_float:
+            text = ["{:5.2f}".format(a) for a in B[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in B[i]]
+
+        line2 = ' '.join(text)
+        print('[' + line + ' ] \t\t' + '[' + line2 + ' ]')
+
+def print_three_mat(A, B, C, is_float):
+    for i in range(A.shape[0]):
+        if is_float[0]:
+            text = ["{:5.2f}".format(a) for a in A[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in A[i]]
+
+        line = ' '.join(text)
+        if is_float[1]:
+            text = ["{:5.2f}".format(a) for a in B[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in B[i]]
+
+        line2 = ' '.join(text)
+
+        if is_float[2]:
+            text = ["{:5.2f}".format(a) for a in C[i]]
+        else:
+            text = ["{:4d}".format(int(a)) for a in C[i]]
+
+        line3 = ' '.join(text)
+
+        print('[' + line + ' ] \t\t' + '[' + line2 + ' ] \t\t'+ '[' + line3 + ' ]')
+
+
 

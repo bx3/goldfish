@@ -243,7 +243,8 @@ def test_mf_online():
     # num_mask_per_row = int(sys.argv[11])
 
     exp_name = ('node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
-            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+str(num_mask_per_row)+'mask'+'-'+name)
+            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+str(num_mask_per_row)+'mask'+'-'+
+            init_method+'-'+name)
 
     T = int(math.ceil(L * math.log(N)))
     mf_online_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
