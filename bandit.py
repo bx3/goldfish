@@ -10,10 +10,11 @@ def print_matrix(A):
         print(list(np.round(A[i], 3)))
 
 class UcbEntry:
-    def __init__(self, l, a, node_id, ucb_method):
+    def __init__(self, l, a, node_id, ucb_method, alpha):
         self.id = node_id
         self.l = l  # l for region
         self.a = a  # a for arm 
+        self.alpha = alpha
         self.n = 0  # number times being pull, number of rewards
 
         self.samples = []
@@ -25,6 +26,16 @@ class UcbEntry:
         self.T_list = []
         self.max_time_list = []
         self.ucb_method = ucb_method
+
+    def reset(self):
+        self.n = 0
+        self.samples = []
+        self.times = []
+        self.times_index = [] # when times is added
+        self.shares = []
+        self.score_list = []
+        self.T_list = []
+        self.max_time_list = []
 
     def time_to_ucb_reward(self, t, max_time):
         re = (max_time - t) / max_time
@@ -38,8 +49,7 @@ class UcbEntry:
 
     # T is used for debug, indicating when reward is given
     def update(self, t, share, T):
-        sample = (t, T, share)
-        self.samples.append(sample)
+        self.samples.append((t, T, share))
 
     def notify_pulled(self, score, T, max_time):
         self.score_list.append(score)
@@ -64,12 +74,12 @@ class UcbEntry:
         sum_reward = 0.0
         sum_share = 0.0
         for sample in self.samples:
-            t, T, s = sample
+            t, _, s = sample
             sum_reward += self.time_to_lcb_reward(t, max_time) * s
             sum_share += s
 
         empirical_mean = sum_reward/sum_share
-        lower_bound = empirical_mean - math.sqrt(config.alpha * math.log(T) / 2.0 / n)
+        lower_bound = empirical_mean - math.sqrt(self.alpha * math.log(T) / 2.0 / n)
         return lower_bound
 
     def get_upper_bound(self, T, max_time):
@@ -81,35 +91,34 @@ class UcbEntry:
         sum_reward = 0.0
         sum_share = 0.0
         for sample in self.samples:
-            t, T, s = sample
+            t, _, s = sample
             sum_reward += self.time_to_ucb_reward(t, max_time) * s
             sum_share += s
         empirical_mean = sum_reward/sum_share 
 
-        upper_bound = empirical_mean + math.sqrt(config.alpha * math.log(T) / 2.0 / n)
+        upper_bound = empirical_mean + math.sqrt(self.alpha * math.log(T) / 2.0 / n)
         return upper_bound
 
 class Bandit:
-    def __init__(self, node_id, num_region, num_node):
+    def __init__(self, node_id, num_region, num_node, alpha, bandit_method):
         self.ucb_table = {}
         self.id = node_id
         self.num_region = num_region
         self.num_node = num_node 
-        self.alpha = config.alpha 
         self.is_init = False # is false, if we don't record randomization data
         self.max_time = 0
         self.T = 0    # this T is used for ucb, count number of conn changes
         self.num_msgs = [0 for _ in range(num_region)] # key is region, value is number recv msg
 
         self.special_num = config.time_constant
-        if config.ucb_method == 'lcb':
+        if bandit_method == 'lcb':
             self.special_num = -1*config.time_constant
 
         for i in range(num_region):
             for j in range(num_node):
                 if j != self.id:
                     # node cannot pull itself
-                    self.ucb_table[(i,j)] = UcbEntry(i, j, node_id, config.ucb_method)
+                    self.ucb_table[(i,j)] = UcbEntry(i, j, node_id, config.ucb_method, alpha)
 
     def log_table(self, logger, epoch, origins):
         logger.write_str('>'+str(epoch)+'.ucb.' + str(origins))
@@ -129,6 +138,8 @@ class Bandit:
 
         comment = '>'+str(epoch)+'.ucb time:'+str(self.T)+'.max:'+str(int(self.max_time))+'.origins:'+str(origins)+'.ucb scores'
         logger.write_float_mat(score_table, comment, self.special_num)
+
+
 
     def soft_update(self, times, shares):
         assert(len(shares) == self.num_region)
@@ -162,6 +173,21 @@ class Bandit:
             self.hard_update(times, shares)
         else:
             self.soft_update(times, shares) 
+
+    def set_ucb_table(self, W, X, mask, max_time):
+        self.T = W.shape[0]
+        self.max_time = np.max(X)
+        for pair, entry in self.ucb_table.items():
+            entry.reset()
+
+        for i in range(self.T):
+            l = np.argmax(W[i]) # which sums to 1
+            X_row = X[i]
+            for j, t in enumerate(X_row):
+                if j != self.id and mask[i,j] != 0:
+                    self.ucb_table[(l, j)].update(t, 1, i)
+        return np.argmax(W, axis=1)
+
 
     # always collect rewards from the last time
     def update_ucb_table(self, W, X, num_msg, max_time):
@@ -264,3 +290,27 @@ class Bandit:
 
     def epsilon_greedy(self):
         pass
+
+    def print_table(self, epoch, origins):
+        logger.write_str('>'+str(epoch)+'.ucb.' + str(origins))
+        for pair, entry in self.ucb_table.items():
+            l, i = pair
+            if len(entry.samples) > 0:
+                logger.write_ucb(l, i, entry.samples)
+
+    def get_scores(self):
+        score_table = np.zeros((self.num_region, self.num_node))
+        num_sample_table = np.zeros((self.num_region, self.num_node))
+        special_mask = np.ones((self.num_region, self.num_node))
+        for l in range(self.num_region):
+            for i in range(self.num_node):
+                score = self.special_num
+                if i != self.id:
+                    score = self.ucb_table[(l,i)].get_bound(self.T, self.max_time)
+                    num_sample_table[l,i] = len(self.ucb_table[(l,i)].samples)
+                score_table[l, i] = score
+                if score == self.special_num:
+                    special_mask[l,i] = 0
+                
+        return score_table, num_sample_table, self.max_time, self.T, special_mask
+        

@@ -35,10 +35,10 @@ rho_H = 0.001
 rho_W = 0
 
 # bandit
-alpha = 0.01 
-time_constant = 999
+alpha = 1 
+time_constant = 9
 hard_update = True   # otherwise soft 
-ucb_method = 'ucb'
+ucb_method = 'lcb'
 num_untouch_arm = 0
 
 

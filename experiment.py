@@ -140,7 +140,9 @@ class Experiment:
             self.bandits[i] = Bandit(
                 i,
                 self.num_region,
-                self.num_node 
+                self.num_node,
+                config.alpha,
+                config.ucb_method
             )
 
     def init_logger(self):

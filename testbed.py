@@ -202,8 +202,8 @@ def test_mf():
 def test_mf_online():
     if len(sys.argv) < 13:
         print('Error. Invalud arguments')
-        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] noise[float] H-method[unif,log-unif,1D-linear] add-method[rolling,append] num_mask[int] init-method[algo,ref]')
-        print('example: /testbed.py mf-online 1 name=rand-init node=20 region=5 new_msgs=1 H-method=1D-linear add-method=append num_mask=0 noise=0 max_iter=100 init-method=ref')
+        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] noise[float] H_method[unif,log-unif,1D-linear] add_method[rolling,append] num_mask[int] init_method[algo,ref] mask_method[random,bandit]')
+        print('example: ./testbed.py mf-online 1 node=20 region=5 new_msgs=1 H_method=1D-linear add_method=append mask_method=bandit init_method=ref name=rand-init num_mask=0 noise=0 max_iter=100 ')
 
         # print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10 log-unif append 0')
         sys.exit(1)
@@ -217,17 +217,19 @@ def test_mf_online():
             L = int(arg[7:])
         elif 'new_msgs=' in arg:
             num_msg = int(arg[9:])
-        elif 'H-method=' in arg:
+        elif 'H_method=' in arg:
             H_method = arg[9:]
-        elif 'add-method=' in arg:
+        elif 'add_method=' in arg:
             add_method = arg[11:]
         elif 'max_iter=' in arg:
             max_iter = int(arg[9:])
         elif 'num_mask=' in arg:
             num_mask_per_row = int(arg[9:])
+        elif 'mask_method=' in arg:
+            mask_method = arg[12:]
         elif 'name=' in arg:
             name = arg[5:]
-        elif 'init-method=' in arg:
+        elif 'init_method=' in arg:
             init_method = arg[12:]
         else:
             print('Error. Unknown arg', arg)
@@ -243,13 +245,17 @@ def test_mf_online():
     # num_mask_per_row = int(sys.argv[11])
 
     exp_name = ('node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
-            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+str(num_mask_per_row)+'mask'+'-'+
-            init_method+'-'+name)
+            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+mask_method+'-'+str(num_mask_per_row)+
+            'mask'+'-'+init_method+'-'+name)
 
-    T = int(math.ceil(L * math.log(N)))
+    T = int(2*math.ceil(L * math.log(N)))
     mf_online_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
-            H_method, init_method)
+            H_method, init_method, mask_method)
     W_scores, H_scores = mf_online_exp.start_mf_online(max_iter, num_msg, std)
+    with open(mf_online_exp.result_filepath, 'w') as w:
+        # w.write(str(int(std)) + '\t' + str(num_mask_per_row) + '\n')
+        w.write('\t'.join([str(a) for a in W_scores]) + '\n')
+        w.write('\t'.join([str(a) for a in H_scores]) + '\n')
 
     iters = [i for i in range(len(W_scores))]
     fig, axs = plt.subplots(2)
@@ -259,7 +265,7 @@ def test_mf_online():
     axs[1].set_title('H best perm score')
     plt.tight_layout()
     plt.show()
-    fig.savefig(mf_online_exp.filepath)
+    fig.savefig(mf_online_exp.fig_filepath)
 
 def print_help():
     print('subcommand')

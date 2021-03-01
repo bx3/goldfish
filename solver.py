@@ -135,7 +135,7 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
             # print('Error. denom is 0')
             # sys.exit(1)
 
-        t_W = 0.25 * LA.norm(grad_W, 'fro')**2 / LA.norm( grad_W.dot(H) * I, 'fro')**2
+        t_W = 0.01 * LA.norm(grad_W, 'fro')**2 / LA.norm( grad_W.dot(H) * I, 'fro')**2
         #t_W = np.trace(P.T.dot(grad_W.dot(H))) / np.trace(H.T.dot(grad_W.T).dot(grad_W).dot(H))
         # t_A = 1/LA.norm(B.dot(B.T), 'fro')**2
 
@@ -150,7 +150,9 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
             W[i,:] = projection_simplex_sort(W[i])
 
         grad_H = (W.T).dot(P)
-        t_H = 0.25 * LA.norm(grad_H, 'fro')**2 / LA.norm( W.dot(grad_H) * I, 'fro')**2
+        # t_H = 0.1 * LA.norm(grad_H, 'fro')**2 / LA.norm( W.dot(grad_H) * I, 'fro')**2
+        t_H = 0.01 * LA.norm(grad_H, 'fro')**2 / LA.norm( W.dot(grad_H) * I, 'fro')**2
+
         # t_H = np.trace(P.T.dot(W).dot(grad_H)) / np.trace(grad_H.T.dot(W.T).dot(W).dot(grad_H))
         # # t_H = 1/ LA.norm(A.T.dot(A), 'fro')**2
 
