@@ -9,9 +9,9 @@ import config
 import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
-def run_pgd_nmf(i, slots, N, L, W, H, new_msgs_ind, init_new):
+def run_pgd_nmf(i, slots, N, L, W, H, init_new):
     X, mask, max_time = construct_table(N, slots)
-    W_init, H_init = init_matrix(L, X, mask, W, H, new_msgs_ind, init_new)
+    W_init, H_init = init_matrix(L, X, mask, W, H, init_new)
     W_est, H_est, opt = alternate_minimize(W_init, H_init, X, mask, L, None, i, 
             config.num_alt, config.tol_obj, config.rho_W, config.rho_H)
 
@@ -22,10 +22,15 @@ def print_mat(A):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(L, X, mask, W, H, new_msg_start, init_new):
+def init_matrix(L, X, mask, W, H,  init_new):
     if init_new : #or (not config.feedback_WH) or (not config.prior_WH)
         if config.init_nndsvd:
-            A, B = nndsvd.initial_nndsvd(X*mask, L, config.nndsvd_seed)
+            T = X.shape[0]
+            N = X.shape[1]
+            X_mean = np.mean(X*mask)
+            A = np.random.uniform(0, 1, (T, L))
+            B = np.random.uniform(0, X_mean, (L, N))
+            # A, B = nndsvd.initial_nndsvd(X*mask, L, config.nndsvd_seed)
         else:
             A, S, B = svds(X, L)
             I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
@@ -33,16 +38,16 @@ def init_matrix(L, X, mask, W, H, new_msg_start, init_new):
             B = np.transpose((B.T).dot(np.diag(S*I)))
         return A, B
     else :
-        shape = W.shape 
-        T = W.shape[0]
-        N = H.shape[1]
-        L = W.shape[1]
+        # shape = W.shape 
+        # T = W.shape[0]
+        # N = H.shape[1]
+        # L = W.shape[1]
 
-        W_out = np.zeros(W.shape)
-        num_msg = T-new_msg_start
-        new_noise = np.random.rand(num_msg, L)
-        W_out[:new_msg_start] = W[num_msg:]
-        W_out[new_msg_start:] = new_noise
+        # W_out = np.zeros(W.shape)
+        # num_msg = T-new_msg_start
+        # new_noise = np.random.rand(num_msg, L)
+        # W_out[:new_msg_start] = W[num_msg:]
+        # W_out[new_msg_start:] = new_noise
 
         # A[:new_msg_start] = W[:new_msg_start] + np.random.normal(
                     # config.W_noise_mean, 
@@ -50,7 +55,7 @@ def init_matrix(L, X, mask, W, H, new_msg_start, init_new):
         # A[new_msg_start:] = np.ones((T-new_msg_start, L))  # np.random.rand(T-new_msg_start, L)
         # np.ones((T-new_msg_start, L))
         # H_mean = np.mean(H)
-        return W_out, H
+        return W, H
 
 def construct_table(N, slots):
     T = len(slots)
@@ -120,6 +125,7 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
     start = time.time()
     W = W_init
     H = H_init
+
     P = (W.dot(H) - X) * I 
     num_row = W.shape[0]
 

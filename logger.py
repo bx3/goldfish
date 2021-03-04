@@ -66,3 +66,105 @@ class Logger:
     def write_str(self, txt):
         with open(self.filename, 'a') as writer:
             writer.write(txt + '\n')
+
+    def format_mat(self, A, is_float):
+        lines = []
+        if not is_float:
+            ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+        else:
+            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+        lines.append('_' + '_'.join(ticks)+'_ ')
+        for i in range(A.shape[0]):
+            if not is_float:
+                text = ["{:4d}".format(int(a)) for a in A[i]]
+            else:
+                text = ["{:5.2f}".format(a) for a in A[i]]
+            line = ' '.join(text)
+            lines.append('[' + line + ' ]')
+        return lines
+
+    def format_array(self, a):
+        lines = []
+        title = '_Rslt'
+        lines.append('_' + ''.join(title)+'_ ')
+        for i in range(len(a)):
+            text = ["{:5s}".format(str(a[i]))]
+            line = ' '.join(text)
+            lines.append(' ' + line + '  ')
+        return lines
+
+
+    def format_mat_5(self, A, is_float):
+        lines = []
+        if not is_float:
+            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+        else:
+            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+        lines.append('_' + '_'.join(ticks)+'_ ')
+        for i in range(A.shape[0]):
+            if not is_float:
+                text = ["{:5d}".format(int(a)) for a in A[i]]
+            else:
+                text = ["{:5.2f}".format(a) for a in A[i]]
+            line = ' '.join(text)
+            lines.append('[' + line + ' ]')
+        return lines
+
+
+    def print_mats(self, mats):
+        lines = []
+        num_mat = len(mats)
+        num_line = len(mats[0])
+        for i in range(num_line): 
+            line = ''
+            for mat in mats:
+                line += mat[i] + '\t'
+            print(line) 
+
+    def log_mats(self, mats):
+        with open(self.filename, 'a') as writer:
+            lines = []
+            num_mat = len(mats)
+            num_line = len(mats[0])
+            for i in range(num_line): 
+                line = ''
+                for mat in mats:
+                    line += mat[i] + '\t'
+                writer.write(line + '\n')
+
+    def print_mat(self, A, is_float):
+        for i in range(A.shape[0]):
+            if not is_float:
+                text = ["{:4d}".format(int(a)) for a in A[i]]
+            else:
+                text = ["{:5.2f}".format(a) for a in A[i]]
+            line = ' '.join(text)
+            print('[' + line + ' ]')
+
+    def format_masked_mat(self, A, mask, is_float):
+        lines = []
+        if not is_float:
+            ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+        else:
+            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+
+        lines.append('_' + '_'.join(ticks)+'_ ')
+        for i in range(A.shape[0]):
+            row = A[i]
+            text = []
+            if not is_float:
+                for j in range(len(row)):
+                    if mask[i,j] == 1:
+                        text.append("{:4d}".format(int(row[j]))) 
+                    elif mask[i,j] == 0:
+                        text.append("{:>4}".format('*')) 
+            else:
+                for j in range(len(row)):
+                    if mask[i,j] == 1:
+                        text.append("{:5.2f}".format(row[j])) 
+                    elif mask[i,j] == 0:
+                        text.append("{:>5}".format('*')) 
+            line = ' '.join(text)
+            lines.append('[' + line + ' ]')
+        return lines
+

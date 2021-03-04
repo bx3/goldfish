@@ -11,6 +11,9 @@ from collections import defaultdict
 import math 
 import time
 import solver
+from numpy import linalg as LA
+import itertools
+
 
 # networkstate and oracle may look redundant, but oracle is used to answering 2hop
 # networkstate is essential for checking if connection is possible
@@ -116,60 +119,89 @@ def bandit_selection(bandit, W, X, network_state, outs_neighbors, out_lim, num_m
     # pulled_arms = bandit.get_pulled_arms()
     return arms
 
-def select_nodes_by_matrix_completion(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch):
+def run_mf(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch):
+
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
-
     start = time.time()
-    # if config.num_thread == 1:
-        # for i in update_nodes:
-            # opt = optimizers[i]
-            # st = sparse_tables[i]
-            # W, H = solver.run_pgd_nmf(i, st.table[-st.window:], 
-                    # st.N, st.L, opt.W, opt.H, st.window-num_msg)
-            # X, max_time = solver.construct_table(st.N, st.table[-st.window:])
-            # opt.store_WH(W, H)
-            
-            # peers = bandit_selection(
-                    # bandits[i], W, X, network_state, 
-                    # outs_neighbors, out_lim, num_msg, max_time, epoch)
-            
+    # run matrix factorization
+    multithread_matrix_factor(
+        optimizers, 
+        sparse_tables,  
+        bandits, 
+        update_nodes, 
+        num_msg, 
+        pools, 
+        loggers, 
+        epoch)
 
-            # # argmin_top_peers = choose_best_neighbor(H)
-            # # argmin_peers = get_argmin_peers(i, H, network_state, outs_neighbors, out_lim)
-            # # debug
-            # # print(i, argmin_top_peers, argmin_peers)
-            # # print(get_times(argmin_top_peers, X, out_lim))
-            # # print(get_times(argmin_peers, X, out_lim))
-            # # sys.exit(2)
-            # for p in peers:
-                # if is_connectable(i, p, network_state, outs_neighbors[i]):
-                    # outs_neighbors[i].append(p)
-                    # network_state.add_in_connection(i, p)
+    # process arms
+    process_WH(
+        update_nodes, 
+        optimizers, 
+        bandits, 
+        sparse_tables, 
+        network_state, 
+        outs_neighbors, 
+        out_lim, 
+        num_msg,
+        loggers)
 
-        # print('selection', round(time.time()-start, 2))
-        # # print_bandits(bandits)
-    # else:
-    multithread_matrix_factor(nodes, optimizers, sparse_tables,  bandits, update_nodes, network_state, outs_neighbors, out_lim, num_region, num_msg, pools, loggers, epoch)
-
-    # choose random peers
-    # num_random = 0
-    # start = time.time()
-    # for i in update_nodes:
-        # trial = 0
-        # while len(outs_neighbors[i]) < out_lim:
-            # num_random += 1
-            # w = np.random.randint(num_node)
-            # while not is_connectable(i, w, network_state, outs_neighbors[i]):
-                # w = np.random.randint(num_node)
-                # trial += 1
-                # if trial == num_node-1:
-                    # print(i, 'tried too many trial for random peer')
-                    # break
-            # outs_neighbors[i].append(w)
-            # network_state.add_in_connection(i, w)
     return outs_neighbors
-            
+
+def process_WH(update_nodes, optimizers, bandits, sparse_tables, network_state, outs_neighbors, out_lim, num_msg, loggers):
+    for i in update_nodes:
+        opt = optimizers[i]
+        st = sparse_tables[i]
+        logger = loggers[i]
+        X_input, mask_input, max_time = solver.construct_table(st.N, st.table[-opt.window:])
+        # reorder H 
+        _, _, W_reorder, H_reorder, _ = match_WH(opt.W_est, opt.H_est, opt.W_prev, opt.H_prev, False) 
+        opt.H_prev = H_reorder.copy()
+        opt.W_prev = W_reorder.copy()
+        # update_ucb table
+        bandits[i].set_ucb_table(W_reorder, X_input, mask_input, np.max(X_input))
+        # update H mean table
+        H_mean, sample_mean, H_mean_mask = get_H_mean(W_reorder, X_input, mask_input)
+        opt.H_mean = H_mean.copy()
+        opt.H_mean_mask = H_mean_mask.copy()
+
+        opt = optimizers[i]
+        logger.write_str('W_reorder W_chosen')
+        logger.log_mats([
+            logger.format_mat(W_reorder,True), 
+            logger.format_mat(get_argmax_W(W_reorder), False)])
+        logger.write_str('X mask')
+        logger.log_mats([logger.format_masked_mat(X_input, mask_input, False)])
+        logger.write_str('X diff')
+        logger.log_mats([logger.format_masked_mat(X_input-W_reorder.dot(H_reorder), mask_input, False)])
+        logger.write_str('H_reorder')
+        logger.log_mats([logger.format_masked_mat(H_reorder, H_mean_mask, False)])
+        logger.write_str('H_mean')
+        logger.log_mats([logger.format_masked_mat(H_mean, H_mean_mask, False)])
+
+        # pull arms
+        # scores, num_samples, max_time, bandit_T, score_mask = bandits[i].get_scores()
+        valid_arms = get_pullable_arms(bandits[i].id, network_state)
+        selected_arms = []
+        bandit_arms = bandits[i].pull_arms(valid_arms, out_lim)
+        # for l in range(out_lim):
+            # if l not in keep_regions:
+                # selected_arms.append(bandit_arms[l])
+        peers = [p for i, p in sorted(bandit_arms, key=lambda x: x[0])]
+
+
+        # update connections
+        for p in peers:
+            if is_connectable(i, p, network_state, outs_neighbors[i]):
+                outs_neighbors[i].append(p)
+                network_state.add_in_connection(i, p)
+            else:
+                print('epoch', epoch, peers)
+                print('bandit_arms', bandit_arms)
+                print('keep arm', keep_arms)
+                print(i, p, 'not connectable')
+                sys.exit(1)
 
 # nh is node hash
 def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_tables, in_lim, out_lim, network_state):
@@ -290,21 +322,23 @@ def print_mat(A):
         text = ["{:4d}".format(int(a)) for a in A[i]]
         print(' '.join(text))
 
-def multithread_matrix_factor(nodes, optimizers, sparse_tables, bandits, update_nodes, network_state, outs_neighbors, out_lim, num_region, num_msg, pools, loggers, epoch):
+def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools, loggers, epoch):
     args = []
-    W_ = {}
     start = time.time()
     init_new = None
 
     for i in range(len(update_nodes)):
         opt = optimizers[i]
         st = sparse_tables[i]
-        if opt.H is None:
+        
+        if opt.H_input is None or opt.W_input is None:
             init_new = True
         else:
             init_new = False
+            num_new_msg = len(st.table) - opt.W_prev.shape[0]
+            opt.update_WH(num_new_msg)
 
-        arg = (i, st.table[-st.window:], st.N, st.L, opt.W, opt.H, st.window-num_msg, init_new)
+        arg = (i, st.table[-opt.window:], opt.N, opt.L, opt.W_input, opt.H_input, init_new)
         args.append(arg)
 
     results = pools.starmap(solver.run_pgd_nmf, args)
@@ -312,50 +346,77 @@ def multithread_matrix_factor(nodes, optimizers, sparse_tables, bandits, update_
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
         W, H, opt = results[i]
-
         loggers[i].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
-
-        W_[i] = W
         optimizers[i].store_WH(W, H)
 
-    for i in update_nodes:
-        opt = optimizers[i]
-        st = sparse_tables[i]
-        X, max_time = solver.construct_table(st.N, st.table[-opt.window:])
+    # for i in update_nodes:
+        # opt = optimizers[i]
+        # st = sparse_tables[i]
+        # X, max_time = solver.construct_table(st.N, st.table[-opt.window:])
 
-        selected_arms = []
-        keep_arms = []
-        keep_regions = [] # get_random_regions(config.num_untouch_arm, num_region) 
-        # if config.num_untouch_arm > 0:
-            # curr_peers = nodes[i].ordered_outs
-            # if len(curr_peers) < out_lim:
-                # print(i, 'curr_peers', curr_peers)
-                # sys.exit(2)
-            # keep_arms = select_keep_arms(i, curr_peers, keep_regions, network_state)
-        # selected_arms += keep_arms
+        # selected_arms = []
+        # keep_arms = []
+        # keep_regions = [] # get_random_regions(config.num_untouch_arm, num_region) 
+        # # if config.num_untouch_arm > 0:
+            # # curr_peers = nodes[i].ordered_outs
+            # # if len(curr_peers) < out_lim:
+                # # print(i, 'curr_peers', curr_peers)
+                # # sys.exit(2)
+            # # keep_arms = select_keep_arms(i, curr_peers, keep_regions, network_state)
+        # # selected_arms += keep_arms
 
-        # select arms
-        bandit_arms = bandit_selection(
-                bandits[i], W_[i], X, network_state, 
-                outs_neighbors, out_lim, num_msg, max_time, loggers[i], epoch, keep_arms)
+        # # update_ucb table
+        # bandits[i].set_ucb_table(W_[i], X, num_msg, np.max(X))
+        # # update H mean table
+        # H_mean, sample_mean, H_mean_mask = get_H_mean(W_reorder, X_input, mask_input)
+
+        # # select arms
+        # bandit_arms = bandit_selection(
+                # bandits[i], W_[i], X, network_state, 
+                # outs_neighbors, out_lim, num_msg, max_time, loggers[i], epoch, keep_arms)
         
-        for l in range(out_lim):
-            if l not in keep_regions:
-                selected_arms.append(bandit_arms[l])
+        # for l in range(out_lim):
+            # if l not in keep_regions:
+                # selected_arms.append(bandit_arms[l])
 
-        peers = [p for i, p in sorted(selected_arms, key=lambda x: x[0])]
+        # peers = [p for i, p in sorted(selected_arms, key=lambda x: x[0])]
             
-        # update connections
-        for p in peers:
-            if is_connectable(i, p, network_state, outs_neighbors[i]):
-                outs_neighbors[i].append(p)
-                network_state.add_in_connection(i, p)
-            else:
-                print('epoch', epoch, peers)
-                print('bandit_arms', bandit_arms)
-                print('keep arm', keep_arms)
-                print(i, p, 'not connectable')
-                sys.exit(1)
+        # # update connections
+        # for p in peers:
+            # if is_connectable(i, p, network_state, outs_neighbors[i]):
+                # outs_neighbors[i].append(p)
+                # network_state.add_in_connection(i, p)
+            # else:
+                # print('epoch', epoch, peers)
+                # print('bandit_arms', bandit_arms)
+                # print('keep arm', keep_arms)
+                # print(i, p, 'not connectable')
+                # sys.exit(1)
+
+def get_H_mean(W_est, X_input, mask):
+    T = X_input.shape[0]
+    N = X_input.shape[1]
+    L = W_est.shape[1]
+
+    H_mean_data = defaultdict(list)
+    sum_sample= np.sum(X_input*mask) 
+    num_sample = np.sum(mask) 
+    for i in range(T):
+        X_row = X_input[i]
+        l = np.argmax(W_est[i])
+        for j, t in enumerate(X_row):
+            if mask[i,j] != 0:
+                H_mean_data[(l,j)].append(t)
+    sample_mean = sum_sample / num_sample
+    H_mean = np.ones((L, N)) * sample_mean
+    H_mean_mask = np.zeros((L, N))
+    # for k, v in sorted(H_mean_data.items()):
+        # print(k,np.round(v))
+    for pair, samples in H_mean_data.items():
+        l,j = pair
+        H_mean[l,j] = sum(samples)/len(samples)   
+        H_mean_mask[l,j] = 1
+    return H_mean, sample_mean, H_mean_mask
 
 def select_keep_arms(i, curr_peers, keep_regions, network_state):
     selected = []
@@ -389,3 +450,81 @@ def select_keep_arms(i, curr_peers, keep_regions, network_state):
         # selected_nodes.add(arm)
         # selected.append((l, arm))
     return selected 
+
+def match_WH(W_est, H_est, W_ref, H_ref, is_compare):
+    est_to_ori, H_score = get_est_mapping(H_ref, H_est)
+    row, col = W_est.shape
+    W_re = np.zeros((row, col))
+    H_re = np.zeros(H_ref.shape)
+    for i in range(col):
+        re_idx = est_to_ori[i]
+        W_re[:, re_idx] = W_est[:, i]
+        H_re[re_idx] = H_est[i, :]
+    W_score = -1
+    if is_compare:
+        W_score = compare_W(W_ref, W_re, {i: i for i in range(row)})
+    return W_score, H_score, W_re, H_re, est_to_ori
+
+def compare_W(W_ref, W_est, est_to_ori):
+    W_re = np.zeros(W_est.shape)
+    row, col = W_est.shape
+    for i in range(col):
+        re_idx = est_to_ori[i]
+        W_re[:, re_idx] = W_est[:, i]
+
+    a = np.argmax(W_ref, axis=1)
+    b = np.argmax(W_re, axis=1)
+    assert(len(a) == len(b))
+    results = a == b
+    W_score = sum(results)/len(results)
+    return W_score
+
+
+def best_perm(table):
+    num_node = table.shape[0]
+    nodes = [i for i in range(num_node)]
+    best_comb = None
+    best = 999999
+    hist = {}
+    for comb in itertools.permutations(nodes, num_node):
+        score = 0
+        # i is ori index, j in estimate index
+        for i in range(num_node):
+            j = comb[i]
+            score += table[i,j]  
+        hist[comb] = score
+        if best_comb is None or score < best:
+            best_comb = comb
+            best = score
+    est_to_ori = {}
+    for i in range(num_node):
+        est = best_comb[i]
+        est_to_ori[est] = i
+
+    return est_to_ori, best 
+
+
+def get_est_mapping(H, H_est):
+    table = np.zeros((len(H), len(H_est)))
+    est_to_ori = {}
+    for i in range(len(H)):
+        u = H[i,:]
+        for j in range(len(H_est)):
+            v = H_est[j,:]
+            dis = LA.norm(u-v) 
+            table[i,j] = dis
+    est_to_ori, H_score = best_perm(table)
+
+    # for i in range(len(H)):
+        # est = np.argmin(table[i,:])
+        # est_to_ori[est] = i 
+    # print(m)
+    # print(est_to_ori)
+    return est_to_ori, H_score
+
+def get_argmax_W(W_est):
+    chosen = np.argmax(W_est, axis=1)
+    W_chosen = np.zeros(W_est.shape)
+    for i, c in enumerate(chosen):
+        W_chosen[i,c] = 1
+    return W_chosen

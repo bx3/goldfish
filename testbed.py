@@ -28,8 +28,9 @@ def run_mf():
     record_epochs = [int(i) for i in sys.argv[7:]]
     max_epoch = max(record_epochs) +1
    
-    num_msg = 5 # int(window / config.num_batch)
-    window = int(num_region * math.ceil(math.log(config.num_node))) # T > L log N
+    num_msg = 1 # int(window / config.num_batch)
+    window = int(2 * math.ceil(num_region * math.log(config.num_node))) # T > L log N
+    print(window, num_region, config.num_node)
     
 
     [ node_delay, 

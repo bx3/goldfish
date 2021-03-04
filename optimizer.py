@@ -12,7 +12,6 @@ class SparseTable:
         self.id = node_id
         self.N = num_node
         self.L = num_region # region != num out degree
-        self.window = window # time window that discard old time data
 
     def append_time(self, slots, num_msg):
         lines = [[] for _ in range(num_msg)] 
@@ -33,7 +32,7 @@ class SparseTable:
             self.table.append(lines[i])
 
 class Optimizer:
-    def __init__(self, node_id, num_node, num_region, window):
+    def __init__(self, node_id, num_node, num_region, window, batch_type):
         self.table = [] # raw relative time records, each element is a dict:peer -> time list
         
         self.id = node_id
@@ -41,9 +40,22 @@ class Optimizer:
         self.L = num_region # region = num out degree
         self.T = window # time window that discard old time data
         self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time
-        self.window = window
-        self.H = None
-        self.W = None
+
+        if batch_type == 'append':
+            self.window = 0 
+        else:
+            self.window = window
+
+        self.batch_type = batch_type
+
+        self.H_est = None
+        self.W_est = None
+        self.H_prev = None
+        self.W_prev = None
+        self.H_input = None
+        self.W_input = None
+        self.H_mean = None
+        self.H_mean_mask = None
 
     # slot can be either rel time table or abs time table
     def append_time(self, slots, num_msg):
@@ -57,13 +69,33 @@ class Optimizer:
             self.table.append(lines[i])
     
     def store_WH(self, W, H):
-        if config.feedback_WH:
-            self.W = W
-            self.H = H
-        else:
-            self.W = None
-            self.H = None
-        
+        self.W_est = W.copy()
+        self.H_est = H.copy()
+        if self.W_prev is None:
+            self.W_prev = W.copy()
+        if self.H_prev is None:
+            self.H_prev = H.copy()
+
+    def get_new_W(self, W_est, num_msg):
+        if self.batch_type == 'rolling':
+            W_out = np.zeros(W_est.shape)
+            new_noise = np.random.rand(num_msg, W_est.shape[1])
+            W_out[:self.T-num_msg] = W_est[num_msg:]
+            W_out[self.T-num_msg:] = new_noise
+        elif self.batch_type == 'append':
+            new_noise = np.random.rand(num_msg, W_est.shape[1])
+            W_out = np.vstack((W_est, new_noise))
+        return W_out
+
+    def get_new_H(self, H_mean, H_mean_mask):
+        mean =  np.sum(H_mean*H_mean_mask)/np.sum(H_mean_mask)
+        H_new = H_mean*H_mean_mask + mean*(H_mean_mask!=1)
+        return H_new 
+
+    def update_WH(self, num_msg):
+        self.W_input = self.get_new_W(self.W_prev, num_msg)
+        self.H_input = self.get_new_H(self.H_mean, self.H_mean_mask)
+
     # return matrix B, i.e. region-node matrix that containing real value score
     # def matrix_factor(self):
         # sample time from each table, to assemble the matrix X
