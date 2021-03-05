@@ -52,6 +52,7 @@ class Experiment:
 
         self.broad_nodes = [] # hist of broadcasting node
         self.method = method
+        self.batch_type = 'append' # or rolling
 
         # log setting
         self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
@@ -125,6 +126,7 @@ class Experiment:
                 self.num_node,
                 self.num_region,
                 self.window,
+                self.batch_type
             )
     def init_sparse_tables(self):
         for i in range(self.num_node):
@@ -289,7 +291,7 @@ class Experiment:
 
                     # matrix factorization
                     node_order = self.shuffle_nodes()
-                    outs_conns = schedule.select_nodes_by_matrix_completion(
+                    outs_conns = schedule.run_mf(
                         self.nodes, 
                         self.ld, 
                         self.nh, 
@@ -378,7 +380,7 @@ class Experiment:
     def log_table(self, epoch, num_msg):
         for i in range(self.num_node):
             st = self.sparse_tables[i]
-            X, _ = solver.construct_table(st.N, st.table[-self.window:])
+            X, mask, _ = solver.construct_table(st.N, st.table[-self.window:])
             # TODO temporary debug hack, assuming there are 4 nodes per regions datacenter
             sr = str(int(self.broad_nodes[-1]/4 == int(i/8)))
             comment = '>'+str(epoch)+'. time table. Xnode:'+str(self.broad_nodes[-num_msg:])+'.sr'+sr
