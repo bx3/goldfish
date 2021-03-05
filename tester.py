@@ -149,8 +149,8 @@ class MF_tester:
         max_time = np.max(X_input)
         self.bandit.set_ucb_table(W_est, X_input, mask_input, max_time)
 
-    def get_mask_input(self, num_entry_per_row, X, is_init):
-        if num_entry_per_row == 0:
+    def get_mask_input(self, num_mask_per_row, X, is_init):
+        if num_mask_per_row == 0:
             return X, np.ones(X.shape)
 
         if self.mask_method == 'random' or is_init:
@@ -160,7 +160,7 @@ class MF_tester:
             all_nodes.remove(self.id)
             for i in range(num_r):
                 np.random.shuffle(all_nodes)
-                missings = all_nodes[:num_entry_per_row-1]
+                missings = all_nodes[:num_mask_per_row-1]
                 for j in missings:
                     X[i,j] = 0
                     mask[i,j] = 0 
@@ -169,7 +169,7 @@ class MF_tester:
         elif self.mask_method == 'bandit':
             valid_arms = [i for i in range(self.N)]
             valid_arms.remove(self.id)
-            num_arm = self.N - self.num_mask_per_row
+            num_arm = self.N - num_mask_per_row
             scores, num_samples, max_time, bandit_T,score_mask = self.bandit.get_scores()
             regions_arms = self.bandit.pull_arms(valid_arms, num_arm)
             arms = [a for l, a in regions_arms]
@@ -225,6 +225,7 @@ class MF_tester:
 
     # H_ref used for generating new rows
     def rolling_data(self, X, mask, W, H_ref, num_msg, std):
+        print('rolling data', num_msg, self.T)
         new_msgs = np.zeros((num_msg, self.L))
         for i in range(num_msg):
             j = np.random.randint(self.L)
@@ -236,7 +237,7 @@ class MF_tester:
 
         X_new = new_msgs.dot(H_ref) + np.random.normal(0, std, size=(num_msg, self.N)) 
         X_new[X_new<0] = 0
-        X_new, mask_new = self.get_mask_input(self.num_entry_per_row, X_new, False)
+        X_new, mask_new = self.get_mask_input(self.num_mask_per_row, X_new, False)
 
         X_roll = np.zeros(X.shape)
         X_roll[:self.T-num_msg] = X[num_msg:]
@@ -245,7 +246,7 @@ class MF_tester:
         mask_roll = np.zeros(X.shape)
         mask_roll[:self.T-num_msg] = mask[num_msg:]
         mask_roll[self.T-num_msg:] = mask_new
-        return X_roll, W_roll, mask
+        return X_roll, W_roll, mask_roll
 
     def get_new_W(self, W_est, H_est, X, num_msg):
         if self.X_add_type == 'rolling':
@@ -411,13 +412,13 @@ class MF_tester:
             # W_init = self.row_wise_div(W_init, W_init_row_sum)
             # H_init = self.row_wise_div(H_init, H_init_row_sum)
             # W_init, S, H_init = svds(X_input, self.L)
-            X_mean = np.mean(X_input*mask)
+            X_mean = np.sum(X_input*mask) / np.sum(mask)
             W_init = np.random.uniform(0, 1, (self.T, self.L))
             H_init = np.random.uniform(0, X_mean, (self.L, self.N))
 
-            print('nndsvd W_init')
+            print('random W_init')
             print_mat(W_init, True)
-            print('nndsvd H_init')
+            print('random H_init')
             print_mat(H_init, True)
         else:
             W_init, H_init = prev_W, prev_H

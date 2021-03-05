@@ -234,21 +234,15 @@ def test_mf_online():
         else:
             print('Error. Unknown arg', arg)
             sys.exit(1)
-    # name = sys.argv[3]
-    # N = int(sys.argv[4])
-    # L = int(sys.argv[5])
-    # max_iter = int(sys.argv[6])
-    # num_msg = int(sys.argv[7])
-    # std = float(sys.argv[8])
-    # H_method = sys.argv[9]
-    # new_data = sys.argv[10]
-    # num_mask_per_row = int(sys.argv[11])
 
     exp_name = ('node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
             H_method+'-'+add_method+str(num_msg)+'msg'+'-'+mask_method+'-'+str(num_mask_per_row)+
             'mask'+'-'+init_method+'-'+name)
+    print('exp_name', exp_name)
 
-    T = int(2*math.ceil(L * math.log(N)))
+
+
+    T = int(3*math.ceil(L * math.log(N)))
     mf_online_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
             H_method, init_method, mask_method)
     W_scores, H_scores = mf_online_exp.start_mf_online(max_iter, num_msg, std)
@@ -266,6 +260,9 @@ def test_mf_online():
     plt.tight_layout()
     plt.show()
     fig.savefig(mf_online_exp.fig_filepath)
+
+def get_window_size(num_mask_per_row, N, L):
+    pass
 
 def print_help():
     print('subcommand')
