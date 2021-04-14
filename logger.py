@@ -8,6 +8,29 @@ class Logger:
         with open(self.filename, 'w') as writer:
             writer.write('node ' + str(node_id) + '\n')
 
+        self.score_filename = dirname + '/score' + str(node_id)
+
+        with open(self.score_filename, 'w') as w:
+            pass
+
+    def write_miners(self, miners):
+        with open(self.score_filename, 'a') as writer:
+            s = [str(a) for a in miners]
+            writer.write('miners:' + ' '.join(s) + '\n')
+
+
+    def write_score(self, scores):
+        with open(self.score_filename, 'a') as writer:
+            line = []
+            for m, conn, score in scores:
+                pair = str(m) + ',' + str(conn) + ','+ str(score) 
+                line.append(pair)
+            writer.write(' '.join(line) + '\n')
+
+
+
+        
+
     def write_mat(self, A, comment):
          with open(self.filename, 'a') as writer:
             if comment is not None:
@@ -83,14 +106,23 @@ class Logger:
             lines.append('[' + line + ' ]')
         return lines
 
-    def format_array(self, a):
+    def format_array(self, a, title):
         lines = []
-        title = '_Rslt'
-        lines.append('_' + ''.join(title)+'_ ')
+        lines.append('_' + ''.join(title)+'_')
         for i in range(len(a)):
             text = ["{:5s}".format(str(a[i]))]
             line = ' '.join(text)
-            lines.append(' ' + line + '  ')
+            lines.append(' ' + line + ' ')
+        return lines
+
+    def format_score(self, scores):
+        lines = []
+        title = '_Rslt'
+        lines.append('_' + ''.join(title)+'_')
+        for i in range(len(a)):
+            text = ["{:5s}".format(str(a[i]))]
+            line = ' '.join(text)
+            lines.append(' ' + line + ' ')
         return lines
 
 

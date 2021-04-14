@@ -3,6 +3,7 @@ import sys
 import random
 import config 
 import visualizer
+import initnetwork
 from oracle import PeersInfo
 import copy
 import comb_subset
@@ -13,7 +14,7 @@ import time
 import solver
 from numpy import linalg as LA
 import itertools
-
+import networkx as nx
 
 # networkstate and oracle may look redundant, but oracle is used to answering 2hop
 # networkstate is essential for checking if connection is possible
@@ -80,6 +81,7 @@ def is_connectable(i, p, network_state, selected):
     if network_state.is_conn_addable(i, p):
         return True
     else:
+        print('network_state denia')
         return False
 
 def get_pullable_arms(i, network_state):
@@ -119,11 +121,12 @@ def bandit_selection(bandit, W, X, network_state, outs_neighbors, out_lim, num_m
     # pulled_arms = bandit.get_pulled_arms()
     return arms
 
-def run_mf(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch):
-
+def run_mf(nodes, ld, nd, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch, curr_conns, broad_nodes, topo_type, fixed_points):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
     start = time.time()
+    num_node_per_region = int((len(nodes)-1) / num_region)
+
     # run matrix factorization
     multithread_matrix_factor(
         optimizers, 
@@ -133,7 +136,8 @@ def run_mf(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time
         num_msg, 
         pools, 
         loggers, 
-        epoch)
+        epoch,
+        broad_nodes)
 
     # process arms
     process_WH(
@@ -145,11 +149,26 @@ def run_mf(nodes, ld, nh, optimizers, sparse_tables, bandits, update_nodes, time
         outs_neighbors, 
         out_lim, 
         num_msg,
-        loggers)
+        loggers, 
+        epoch, 
+        curr_conns,
+        broad_nodes, 
+        num_node_per_region, 
+        topo_type, 
+        fixed_points, 
+        ld, 
+        nd
+        )
+    # print('*******')
+    # print(epoch, outs_neighbors)
+    for i, conns in curr_conns.items():
+        if i not in update_nodes:
+            outs_neighbors[i] = conns
+    # print(epoch, outs_neighbors)
 
     return outs_neighbors
 
-def process_WH(update_nodes, optimizers, bandits, sparse_tables, network_state, outs_neighbors, out_lim, num_msg, loggers):
+def process_WH(update_nodes, optimizers, bandits, sparse_tables, network_state, outs_neighbors, out_lim, num_msg, loggers, epoch, curr_conns, broad_nodes, num_node_per_region, topo_type, fixed_points, ld, nd):
     for i in update_nodes:
         opt = optimizers[i]
         st = sparse_tables[i]
@@ -160,49 +179,100 @@ def process_WH(update_nodes, optimizers, bandits, sparse_tables, network_state, 
         opt.H_prev = H_reorder.copy()
         opt.W_prev = W_reorder.copy()
         # update_ucb table
-        bandits[i].set_ucb_table(W_reorder, X_input, mask_input, np.max(X_input))
+        W_keep = bandits[i].set_ucb_table(W_reorder, X_input, mask_input, np.max(X_input))
         # update H mean table
         H_mean, sample_mean, H_mean_mask = get_H_mean(W_reorder, X_input, mask_input)
         opt.H_mean = H_mean.copy()
         opt.H_mean_mask = H_mean_mask.copy()
 
         opt = optimizers[i]
-        logger.write_str('W_reorder W_chosen')
-        logger.log_mats([
-            logger.format_mat(W_reorder,True), 
-            logger.format_mat(get_argmax_W(W_reorder), False)])
-        logger.write_str('X mask')
-        logger.log_mats([logger.format_masked_mat(X_input, mask_input, False)])
-        logger.write_str('X diff')
-        logger.log_mats([logger.format_masked_mat(X_input-W_reorder.dot(H_reorder), mask_input, False)])
-        logger.write_str('H_reorder')
-        logger.log_mats([logger.format_masked_mat(H_reorder, H_mean_mask, False)])
-        logger.write_str('H_mean')
+        window = opt.window
+        window_W = broad_nodes[-window:]
+        W_truth = np.zeros((opt.window, opt.L))
+        if topo_type == 'dc': 
+            for k in range(opt.window):
+                b = int((window_W[k]-1)/num_node_per_region)
+                W_truth[k,b] = 1
+        elif topo_type == 'rand':
+            if fixed_points is not None: 
+                for k in range(opt.window):
+                    b = fixed_points.index(window_W[k])
+                    W_truth[k,b] =  1
+        
+
+        conns_str = ' '.join([str(j) for j in curr_conns[i]])
+        conn_data_str = ' '.join([str(j) for j in np.sum(get_argmax_W(W_reorder), axis=0)])
+        broad_window = broad_nodes[-opt.window:]
+        
+        num_show_mask = 10 
+        num_showed = 10
+        
+        W_truth_reorder = match_W(W_reorder, W_truth.copy())
+        # result_list = np.argmax(W_reorder, axis=1)== np.argmax(W_truth_reorder, axis=1)
+        offs, next_hop_conns = evaluate_conns_on_fixed_miners(
+            i, logger, curr_conns, broad_window[-num_showed:], nd, ld)
+
+        logger.write_str('>'+str(epoch) + ' curr conn ' + conns_str  + ' X mask'  + ' num_data ' +conn_data_str) 
+        logger.log_mats([logger.format_masked_mat(X_input[-num_show_mask:], mask_input[-num_show_mask:], False), 
+            # logger.format_array(W_keep[-num_showed:]),
+            logger.format_mat(W_reorder[-num_showed:],True), 
+            logger.format_mat(get_argmax_W(W_reorder)[-num_showed:], False),
+            # logger.format_mat(get_argmax_W(W_truth_reorder)[-num_showed:], False),
+            # logger.format_mat(get_argmax_W(W_truth)[-num_showed:], False),
+            # logger.format_array(result_list[-num_showed:]),
+            logger.format_array(offs, '_Off_'),
+            logger.format_array(next_hop_conns, '_Nhop'),
+            logger.format_array(broad_window[-num_showed:], '_Src_')])
+        # percent = sum(result_list)/float(len(result_list))
+        mean_off = sum(offs)/len(offs)
+        logger.write_str('>'+str(epoch)+' W_reorder W_chosen  W_truth. Mean offs: '+str(mean_off))
+
+        # logger.write_str('X diff')
+        # logger.log_mats([logger.format_masked_mat(X_input-W_reorder.dot(H_reorder), mask_input, False)])
+        # logger.write_str('>'+str(epoch)+' H_reorder')
+        # logger.log_mats([logger.format_masked_mat(H_reorder, H_mean_mask, False)])
+        logger.write_str('>'+str(epoch)+' H_mean')
         logger.log_mats([logger.format_masked_mat(H_mean, H_mean_mask, False)])
 
         # pull arms
-        # scores, num_samples, max_time, bandit_T, score_mask = bandits[i].get_scores()
+        scores, num_samples, max_time, bandit_T, score_mask = bandits[i].get_scores()
+        
+
         valid_arms = get_pullable_arms(bandits[i].id, network_state)
         selected_arms = []
-        bandit_arms = bandits[i].pull_arms(valid_arms, out_lim)
+        bandit_arms = bandits[i].pull_arms(valid_arms, out_lim, window)
         # for l in range(out_lim):
             # if l not in keep_regions:
                 # selected_arms.append(bandit_arms[l])
-        peers = [p for i, p in sorted(bandit_arms, key=lambda x: x[0])]
+        peers = [p for j, p in sorted(bandit_arms, key=lambda x: x[0])]
 
+        conns_str = ' '.join([str(j) for j in peers])       
+        logger.write_str('>'+str(epoch)+' scores. next conn ' + conns_str)
+        logger.log_mats([logger.format_masked_mat(scores, score_mask, True)])
 
         # update connections
         for p in peers:
-            if is_connectable(i, p, network_state, outs_neighbors[i]):
+            if is_connectable(i, p, network_state, []):
                 outs_neighbors[i].append(p)
                 network_state.add_in_connection(i, p)
             else:
                 print('epoch', epoch, peers)
                 print('bandit_arms', bandit_arms)
-                print('keep arm', keep_arms)
+                # print('keep arm', keep_arms)
                 print(i, p, 'not connectable')
                 sys.exit(1)
 
+def evaluate_conns_on_fixed_miners(u, logger, outs_conns, miners, nd, ld):
+    G = initnetwork.construct_graph_by_outs_conns(outs_conns, nd, ld)
+    offs = []
+    next_hop_conns = []
+    for m in miners:
+        distance, path = nx.single_source_dijkstra(G, u, target=m)
+        off = distance - ld[u, m]
+        offs.append(off)
+        next_hop_conns.append(path[1])
+    return offs, next_hop_conns
+    
 # nh is node hash
 def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_tables, in_lim, out_lim, network_state):
     outs_neighbors = {} # output container
@@ -322,32 +392,55 @@ def print_mat(A):
         text = ["{:4d}".format(int(a)) for a in A[i]]
         print(' '.join(text))
 
-def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools, loggers, epoch):
+def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools, loggers, epoch, broad_nodes):
     args = []
     start = time.time()
     init_new = None
 
-    for i in range(len(update_nodes)):
+    for i in update_nodes:
         opt = optimizers[i]
         st = sparse_tables[i]
-        
-        if opt.H_input is None or opt.W_input is None:
-            init_new = True
-        else:
-            init_new = False
-            num_new_msg = len(st.table) - opt.W_prev.shape[0]
-            opt.update_WH(num_new_msg)
+        # used with dc
+        nodes_per_region = int((opt.N-1)/opt.L)
 
-        arg = (i, st.table[-opt.window:], opt.N, opt.L, opt.W_input, opt.H_input, init_new)
+        # construct grounth truth W
+        window_W = broad_nodes[-opt.window:]
+        W_truth = np.zeros((opt.window, opt.L))
+        for k in range(opt.window):
+            b = int((window_W[k]-1)/nodes_per_region)
+            W_truth[k,b] = 1
+
+        if opt.H_input is None or opt.W_input is None:
+            # init W_input
+            opt.W_input = W = np.random.uniform(0, 1, (opt.window, opt.L)) # W_truth.copy()
+            # init H_input
+            time_sum = 0
+            num_t = 0
+            for slot in st.table[-opt.window:]:
+                for _, t in slot:
+                    time_sum += t
+                    num_t += 1
+            X_mean = time_sum / num_t
+            opt.H_input = np.random.uniform(0, X_mean, (opt.L, opt.N))
+            logger = loggers[i] 
+            logger.write_str('>'+str(epoch)+'init W truth, H_truth')
+            logger.log_mats([logger.format_mat(opt.W_input, True)])
+            logger.log_mats([logger.format_mat(opt.H_input, False)])
+        else:
+            # num_msg = len(st.table) - opt.W_prev.shape[0]
+            # print("num_new_msg", num_msg, len(st.table), opt.W_prev.shape[0])
+            opt.update_WH(num_msg)
+
+        arg = (i, st.table[-opt.window:], opt.N, opt.L, opt.W_input, opt.H_input)
         args.append(arg)
 
     results = pools.starmap(solver.run_pgd_nmf, args)
 
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
-        W, H, opt = results[i]
-        loggers[i].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
-        optimizers[i].store_WH(W, H)
+        W, H, opt, j = results[i]
+        # loggers[j].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
+        optimizers[j].store_WH(W, H)
 
     # for i in update_nodes:
         # opt = optimizers[i]
@@ -451,6 +544,17 @@ def select_keep_arms(i, curr_peers, keep_regions, network_state):
         # selected.append((l, arm))
     return selected 
 
+def match_W(W_est, W_truth):
+    truth_to_est, _ = get_est_mapping_col(W_est, W_truth)
+    row, col = W_est.shape
+    W_truth_reorder = np.zeros((row, col))
+    for i in range(col):
+        re_idx = truth_to_est[i]
+        # print(re_idx, i)
+        W_truth_reorder[:, re_idx] = W_truth[:, i]
+    return W_truth_reorder
+
+
 def match_WH(W_est, H_est, W_ref, H_ref, is_compare):
     est_to_ori, H_score = get_est_mapping(H_ref, H_est)
     row, col = W_est.shape
@@ -502,6 +606,28 @@ def best_perm(table):
         est_to_ori[est] = i
 
     return est_to_ori, best 
+
+
+def get_est_mapping_col(H, H_est):
+    col = H.shape[1]
+    table = np.zeros((col, col))
+    est_to_ori = {}
+    for i in range(col):
+        u = H[:,i]
+        for j in range(col):
+            v = H_est[:,j]
+            dis = LA.norm(u-v) 
+            table[i,j] = dis
+    # print(table)
+    est_to_ori, H_score = best_perm(table)
+    # print(est_to_ori)
+
+    # for i in range(len(H)):
+        # est = np.argmin(table[i,:])
+        # est_to_ori[est] = i 
+    # print(m)
+    # print(est_to_ori)
+    return est_to_ori, H_score
 
 
 def get_est_mapping(H, H_est):

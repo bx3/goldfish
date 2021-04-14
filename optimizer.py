@@ -57,6 +57,19 @@ class Optimizer:
         self.H_mean = None
         self.H_mean_mask = None
 
+        # testing easy case, dc 
+        self.H_truth = np.zeros((self.L, self.N))
+        num_node_per_region = int((self.N-1)/self.L)
+        for i in range(self.L):
+            for j in range(1, self.N):
+                if int((j-1) / num_node_per_region) == i:
+                    self.H_truth[i,j] = 20
+                else:
+                    self.H_truth[i,j] = 200
+        # self.H_input = self.H_truth.copy()
+
+
+
     # slot can be either rel time table or abs time table
     def append_time(self, slots, num_msg):
         lines = [[] for _ in range(num_msg)] 
@@ -71,6 +84,7 @@ class Optimizer:
     def store_WH(self, W, H):
         self.W_est = W.copy()
         self.H_est = H.copy()
+        self.W_input = W.copy()
         if self.W_prev is None:
             self.W_prev = W.copy()
         if self.H_prev is None:
@@ -78,6 +92,7 @@ class Optimizer:
 
     def get_new_W(self, W_est, num_msg):
         if self.batch_type == 'rolling':
+            print("self.T", self.T, "num_msg", num_msg)
             W_out = np.zeros(W_est.shape)
             new_noise = np.random.rand(num_msg, W_est.shape[1])
             W_out[:self.T-num_msg] = W_est[num_msg:]
@@ -85,6 +100,9 @@ class Optimizer:
         elif self.batch_type == 'append':
             new_noise = np.random.rand(num_msg, W_est.shape[1])
             W_out = np.vstack((W_est, new_noise))
+        else:
+            print("Unknown batch_type", self.batch_type)
+            sys.exit(1)
         return W_out
 
     def get_new_H(self, H_mean, H_mean_mask):

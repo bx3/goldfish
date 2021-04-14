@@ -2,6 +2,7 @@
 import numpy as np
 import sys
 import random 
+import readfiles
 
 if len(sys.argv) >= 3:
     seed_num = int(sys.argv[2])
@@ -17,6 +18,7 @@ import math
 import tester
 from experiment import Experiment
 import matplotlib.pyplot as plt
+import net_init
 
 def run_mf():
     subcommand = sys.argv[1]
@@ -25,23 +27,32 @@ def run_mf():
     num_region = int(sys.argv[5])
     use_node_hash = sys.argv[6]=='y'
 
+
+    loc, link_delay = net_init.load_network(config.input_json)
+
     record_epochs = [int(i) for i in sys.argv[7:]]
     max_epoch = max(record_epochs) +1
-   
-    num_msg = 1 # int(window / config.num_batch)
-    window = int(2 * math.ceil(num_region * math.log(config.num_node))) # T > L log N
-    print(window, num_region, config.num_node)
+    window = int(config.num_msg*config.window_constant * math.ceil(num_region * math.log(config.num_node))) # T > L log N
     
+    print(window, num_region, config.num_node)
+    node_delay = initnetwork.GenerateInitialDelay(config.num_node)
+    node_hash = readfiles.ReadHashFile(config.num_node)
+    # [LinkDelay,NodeHash,NodeDelay] = readfiles.Read(NodeDelay, NetworkType, num_node)
 
-    [ node_delay, 
-      node_hash, link_delay, 
-      neighbor_set, IncomingLimit, 
-      outs_neighbors, in_lims, 
-      bandwidth] = initnetwork.GenerateInitialNetwork(
-            config.network_type,
-            config.num_node, 
-            subcommand,
-            out_lim)
+    # [ node_delay, 
+      # node_hash, _, 
+      # _, _, 
+      # _, _, 
+      # _] = initnetwork.GenerateInitialNetwork(
+            # config.network_type,
+            # config.num_node, 
+            # subcommand,
+            # out_lim)
+
+
+
+
+    tester.print_mat(link_delay, False)
 
     if config.use_reduce_link:
         print("\033[91m" + 'Use reduced link latency' + "\033[0m")
@@ -64,7 +75,7 @@ def run_mf():
     else:
         print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
     print("\033[93m" + 'num region '+ str(num_region) +  "\033[0m")
-    print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
+    print("\033[93m" + 'num msg '+ str(config.num_msg) +  "\033[0m")
     print("\033[93m" + 'window '+ str(window) +  "\033[0m")
 
     start = time.time()
@@ -80,10 +91,11 @@ def run_mf():
         data_path,
         adv_nodes,
         window,
-        'mf-bandit' 
+        'mf-bandit' ,
+        loc
         )
-    perigee.init_graph(outs_neighbors)
-    perigee.start(max_epoch, record_epochs, num_msg)
+    perigee.init_graph()
+    perigee.start(max_epoch, record_epochs, config.num_msg)
 
 def run_2hop():
     subcommand = sys.argv[1]
@@ -99,7 +111,7 @@ def run_2hop():
       node_hash, link_delay, 
       neighbor_set, IncomingLimit, 
       outs_neighbors, in_lims, 
-      bandwidth] = initnetwork.GenerateInitialNetwork(
+      _] = initnetwork.GenerateInitialNetwork(
             config.network_type,
             config.num_node, 
             subcommand,
@@ -200,13 +212,11 @@ def test_mf():
     mf_tester = tester.MF_tester(T, N, L, num)
     mf_tester.test_mf()
 
-def test_mf_online():
+def parse_static_input():
     if len(sys.argv) < 13:
         print('Error. Invalud arguments')
-        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] noise[float] H_method[unif,log-unif,1D-linear] add_method[rolling,append] num_mask[int] init_method[algo,ref] mask_method[random,bandit]')
-        print('example: ./testbed.py mf-online 1 node=20 region=5 new_msgs=1 H_method=1D-linear add_method=append mask_method=bandit init_method=ref name=rand-init num_mask=0 noise=0 max_iter=100 ')
-
-        # print('example: mf-online 1 N20_L5_iter20_msg5_std10_seed1 20 5 20 5 10 log-unif append 0')
+        print('test-mf seed[int] out[string] N[int] L[int] max_iter[int] new_msgs[int] noise[float] H_method[unif,log-unif,1D-linear] add_method[rolling,append] num_mask[int] init_method[algo,ref] mask_method[random,bandit] windowM[float]')
+        print('example: ./testbed.py mf-static 1 node=20 region=5 new_msgs=1 H_method=1D-linear add_method=append mask_method=bandit init_method=ref name=rand-init num_mask=0 noise=0 max_iter=100 windowM=4 ')
         sys.exit(1)
 
     for arg in sys.argv[3:]:
@@ -232,18 +242,39 @@ def test_mf_online():
             name = arg[5:]
         elif 'init_method=' in arg:
             init_method = arg[12:]
+        elif 'windowM=' in arg:
+            windowM = float(arg[8:])
         else:
             print('Error. Unknown arg', arg)
             sys.exit(1)
 
+    return (std, N, L, num_msg, H_method, add_method, max_iter, num_mask_per_row, mask_method, name, init_method, windowM)
+
+def run_1hop_static():
+    (std, N, L, num_msg, H_method, 
+     add_method, max_iter, num_mask_per_row, 
+     mask_method, name, init_method, windowM) =  parse_static_input()
+
+    exp_name = ('static1hop_node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
+            H_method+'-'+add_method+str(num_msg)+'msg'+'-'+mask_method+'-'+str(num_mask_per_row)+
+            'mask'+'-'+init_method+'-'+'windowM'+ str(int(windowM))+'-'+name)
+
+    T = int(windowM*math.ceil(L * math.log(N))) # 3
+    static1hop_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
+            H_method, init_method, mask_method)
+    static1hop_exp.run_1hop(max_iter, num_msg, std)
+
+def run_mf_static():
+    (std, N, L, num_msg, H_method, 
+     add_method, max_iter, num_mask_per_row, 
+     mask_method, name, init_method, windowM) =  parse_static_input()
+
     exp_name = ('node'+str(N)+'-'+'region'+str(L)+"-"+'noise'+str(int(std))+'-'+
             H_method+'-'+add_method+str(num_msg)+'msg'+'-'+mask_method+'-'+str(num_mask_per_row)+
-            'mask'+'-'+init_method+'-'+name)
+            'mask'+'-'+init_method+'-'+'windowM'+ str(int(windowM))+'-'+name)
     print('exp_name', exp_name)
 
-
-
-    T = int(3*math.ceil(L * math.log(N)))
+    T = int(windowM*math.ceil(L * math.log(N))) # 3
     mf_online_exp = tester.MF_tester(T, N, L, max_iter, exp_name, add_method, num_mask_per_row, 
             H_method, init_method, mask_method)
     W_scores, H_scores = mf_online_exp.start_mf_online(max_iter, num_msg, std)
@@ -270,7 +301,8 @@ def print_help():
     print('\trun-2hop       seed[int] output_dir[str] num_out[int] num_msg[int] use_node_hash[y/n] rounds[intList]')
     print('\trun-mf         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
     print('\tcomplete-graph seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] 1')
-    print('\tmf-online      seed[int] help')
+    print('\tmf-static      seed[int] help')
+    print('\t1hop-static    seed[int] help')
     print('\ttest_mf        N[int] L[int] std[float] num_exp[int]')
     print('Note. Output is stored at analysis/output_dir')
 
@@ -281,14 +313,16 @@ if __name__ == '__main__':
         print_help()
     elif subcommand == 'test-mf':
         test_mf()
-    elif subcommand == 'mf-online':
-        test_mf_online()
+    elif subcommand == 'mf-static':
+        run_mf_static()
     elif subcommand == 'complete_graph':
         complete_graph() 
     elif subcommand == 'run-2hop':
         run_2hop()
     elif subcommand == 'run-mf':
         run_mf()
+    elif subcommand == '1hop-static':
+        run_1hop_static()
     else:
         print('Error. Unknown subcommand', subcommand)
         print_help()

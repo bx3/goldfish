@@ -79,7 +79,9 @@ class UcbEntry:
             sum_share += s
 
         empirical_mean = sum_reward/sum_share
+
         lower_bound = empirical_mean - math.sqrt(self.alpha * math.log(T) / 2.0 / n)
+        # print(self.id, self.l, self.a, ":", round(lower_bound,2), empirical_mean, self.alpha, T, n, t, max_time)
         return lower_bound
 
     def get_upper_bound(self, T, max_time):
@@ -180,13 +182,23 @@ class Bandit:
         for pair, entry in self.ucb_table.items():
             entry.reset()
 
+        num_update = 0
+        W_keep = []
         for i in range(self.T):
+            if config.is_elimiate_lucky_W:
+                sorted_w = sorted(W[i], reverse=True)
+                if sorted_w[0]-sorted_w[1] < config.eliminate_threshold:
+                    W_keep.append(False)
+                    continue
+            W_keep.append(True)
+            num_update += 1
             l = np.argmax(W[i]) # which sums to 1
             X_row = X[i]
             for j, t in enumerate(X_row):
                 if j != self.id and mask[i,j] != 0:
                     self.ucb_table[(l, j)].update(t, 1, i)
-        return np.argmax(W, axis=1)
+        print('num update', num_update)
+        return W_keep
 
 
     # always collect rewards from the last time
@@ -220,15 +232,15 @@ class Bandit:
         return np.argmax(W, axis=1)
 
     # masks if some arms cannot be pulled
-    def pull_arms(self, valid_arms, required_arm):
+    def pull_arms(self, valid_arms, required_arm, window):
         arms = []
         while len(arms) < required_arm:
             for l in range(self.num_region):
-                scores = []
+                scores = {}
                 for j in valid_arms:
                     assert(j != self.id)
-                    score = self.ucb_table[(l,j)].get_bound(self.T, self.max_time)
-                    scores.append(score)
+                    score = self.ucb_table[(l,j)].get_bound(window, self.max_time)
+                    scores[j] = score
 
                 selected_arm, best_score = self.choose_best_region_arm(valid_arms, scores)
                 
@@ -239,23 +251,75 @@ class Bandit:
                 valid_arms.remove(selected_arm)
         return arms 
 
+    # def pull_arms_merged(self, valid_arms, required_arm, window):
+        # arms = []
+        # table = np.ones((self.num_region, self.num_node)) * self.special_num
+        # for l in range(self.num_region):
+            # scores = {}
+            # for j in valid_arms:
+                # assert(j != self.id)
+                # score = self.ucb_table[(l,j)].get_bound(window, self.max_time)
+                # table[l,j] = score
+                # scores[j] = score
+            # selected_arm, best_score = self.choose_best_region_arm(valid_arms, scores)
+            # # selected_ucb_entry = self.ucb_table[(l, selected_arm)]
+            # # selected_ucb_entry.notify_pulled(best_score, self.T, self.max_time)
+
+            # arms.append((l, selected_arm))
+            # valid_arms.remove(selected_arm)
+
+        # node_mean = np.mean(scores[j], axis=0)
+        # sorted_table_list = sorted(np.flatten(table))
+        # print(node_mean)
+        # reselect_regions = []
+        # for l in range(self.num_region):
+            # best_arm = sorted(table[l])[0]
+            # best_arm_index = sorted_table_list.index(best_arm)
+            # if best_arm_index > sorted_table_list / 2:
+                # reselect_regions.append(l)
+                # for region, arm in arms:
+                    # if region == l:
+                        # arms.remove(region, arm)
+                        # valid_arms.append(arm)
+                        # break
+    
+        # # if len(reselect_regions) > 0:
+            # # arms_best_score = np.min(table, axis=0)
+            # # for  in arms_best_score
+
+        # return arms
+
     def choose_best_region_arm(self, valid_arms, scores):
         assert(len(valid_arms)==len(scores))
         num_arms = len(valid_arms)
         best_arms = []
         best_score = None
         if config.ucb_method == 'ucb':
-            best_score = max(scores)
-            for k, score in enumerate(scores):
-                if score == best_score:
-                    best_arms.append(valid_arms[k])
+            max_score = -1*config.time_constant
+            for a,s in scores.items():
+                if s > max_score and s != config.time_constant:
+                    max_score = s
+
+            for k, score in scores.items():
+                if score == max_score:
+                    best_arms.append(k)
+
         elif config.ucb_method == 'lcb':
-            best_score = min(scores)
-            for k, score in enumerate(scores):
-                if score == best_score:
-                    best_arms.append(valid_arms[k])
+            min_score = config.time_constant
+            for _,s in scores.items():
+                if s < min_score and s != -1*config.time_constant:
+                    min_score = s
+
+            for k, score in scores.items():
+                if score == min_score:
+                    best_arms.append(k)
         else:
             print('Error. invalid ucb method')
+            sys.exit(1)
+        # print(best_arms)
+
+        if len(best_arms) == 0:
+            print('data in some regions')
             sys.exit(1)
 
         random.shuffle(best_arms)
@@ -310,6 +374,7 @@ class Bandit:
                     num_sample_table[l,i] = len(self.ucb_table[(l,i)].samples)
                 score_table[l, i] = score
                 if score == self.special_num:
+                    assert(num_sample_table[l,i] == 0)
                     special_mask[l,i] = 0
                 
         return score_table, num_sample_table, self.max_time, self.T, special_mask

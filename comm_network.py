@@ -28,6 +28,9 @@ def get_broadcast_node(node_hash):
             return u
     return len(node_hash) - 1
 
+def choose_rand_fixed(outs_conns, num_node, num_choose):
+    pass
+
 def print_debug(i, node, v, peer, ld, time_table):
     #if node.views[v] <  -1 * MISMATCH:
     if time_table[i][v][-1] < -1 * MISMATCH:
@@ -78,6 +81,7 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
     # nodes[u].from_whom = u
 
     broad_nodes = [u]
+    # print('broad node', broad_nodes)
     while len(broad_nodes) > 0:
         u = broad_nodes.pop(0)
         node = graph[u]

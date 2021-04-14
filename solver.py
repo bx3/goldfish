@@ -9,35 +9,33 @@ import config
 import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
-def run_pgd_nmf(i, slots, N, L, W, H, init_new):
+def run_pgd_nmf(i, slots, N, L, W, H):
     X, mask, max_time = construct_table(N, slots)
-    W_init, H_init = init_matrix(L, X, mask, W, H, init_new)
-    W_est, H_est, opt = alternate_minimize(W_init, H_init, X, mask, L, None, i, 
+    # W_init, H_init = init_matrix(L, X, mask, W, H)
+    W_est, H_est, opt = alternate_minimize(W, H, X, mask, L, None, i, 
             config.num_alt, config.tol_obj, config.rho_W, config.rho_H)
 
-    return W_est, H_est, opt
+    return W_est, H_est, opt,i
 
 def print_mat(A):
     for i in range(A.shape[0]):
         print(list(np.round(A[i], 3)))
 
 # init A, B, X is observation matrix
-def init_matrix(L, X, mask, W, H,  init_new):
-    if init_new : #or (not config.feedback_WH) or (not config.prior_WH)
-        if config.init_nndsvd:
-            T = X.shape[0]
-            N = X.shape[1]
-            X_mean = np.mean(X*mask)
-            A = np.random.uniform(0, 1, (T, L))
-            B = np.random.uniform(0, X_mean, (L, N))
-            # A, B = nndsvd.initial_nndsvd(X*mask, L, config.nndsvd_seed)
-        else:
-            A, S, B = svds(X, L)
-            I = np.sign(A.sum(axis=0)) # 2 * int(A.sum(axis=0) > 0) - 1
-            A = A.dot(np.diag(I))
-            B = np.transpose((B.T).dot(np.diag(S*I)))
-        return A, B
-    else :
+def init_matrix(L, X, mask, W, H):
+    
+    T = X.shape[0]
+    N = X.shape[1]
+    if W is None:
+        W = np.random.uniform(0, 1, (T, L))
+
+    if H is None:
+        X_mean = np.mean(X*mask)
+        H = np.random.uniform(0, X_mean, (L, N))
+    return W, H
+    # if init_new : #or (not config.feedback_WH) or (not config.prior_WH)
+        # pass
+    # else :
         # shape = W.shape 
         # T = W.shape[0]
         # N = H.shape[1]
@@ -55,7 +53,7 @@ def init_matrix(L, X, mask, W, H,  init_new):
         # A[new_msg_start:] = np.ones((T-new_msg_start, L))  # np.random.rand(T-new_msg_start, L)
         # np.ones((T-new_msg_start, L))
         # H_mean = np.mean(H)
-        return W, H
+        # return W, H
 
 def construct_table(N, slots):
     T = len(slots)
@@ -172,7 +170,7 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
         H[H<0] = 0 
 
         P = (W.dot(H) - X) * I
-        opt = 0.5 * LA.norm(P, 'fro')
+        opt = LA.norm(P, 'fro')
         opts.append(opt)
         diff = prev_opt - opt
         if diff > 0 and diff < tol_obj: # and opt < 10
@@ -196,7 +194,7 @@ def alternate_minimize(W_init, H_init, X, I, L, prev_H, node_id,
         # print(prev_opt - opt)
     # if prev_B is not None:
         # sys.exit(2)
-    return W, H, opt 
+    return W, H, opt/LA.norm(H)
 
 
 

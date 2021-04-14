@@ -11,6 +11,10 @@ import itertools
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from bandit import Bandit
+from schedule import NetworkState
+import os
+import comb_subset
+from selector import Selector
 
 class MF_tester:
     def __init__(self, T, N, L, num, out_name, add_new_data_type, num_mask_per_row, method, init_method, mask_method):
@@ -31,7 +35,8 @@ class MF_tester:
         self.X_add_type = add_new_data_type
         self.num_mask_per_row = num_mask_per_row
 
-        self.inter_lat = 33
+        self.inter_lat = 60
+        self.intra_lat = 25
         self.H_ref = self.construct_H(method)
         print('T', self.T, 'N', self.N, 'L', self.L, 
                 'inter latency', self.inter_lat, 'H mean', np.mean(self.H_ref),
@@ -48,6 +53,103 @@ class MF_tester:
             self.bandit_alpha,
             'lcb'
         )
+        self.other_nodes = []
+        for i in range(self.N):
+            if i != self.id:
+                self.other_nodes.append(i)
+
+        self.ld = None 
+        self.node_delay = {}
+        for i in range(self.N):
+            self.node_delay[i] = 0
+        # if not os.path.exists(self.fig_filepath):
+            # os.makedirs(self.fig_filepath)
+        # if not os.path.exists(self.result_filepath):
+            # os.makedirs(self.result_filepath)
+
+    def run_1hop(self, max_iter, num_append, std):
+        X, X_input, W_ref = self.construct_data(std)
+        H_ref = self.H_ref
+
+        print('ref H')
+        print_mat(H_ref, False)
+        print()
+        
+        # X_input, mask_input = self.get_mask_input(self.num_mask_per_row, X_noise, True)
+
+
+        num_keep = 3
+        num_rand = self.L - num_keep
+        num_msg = 10
+        out_conns = np.random.permutation(self.other_nodes)[:self.L]
+
+        # only use new msgs since 1hop discard old data
+        for i in range(0, max_iter):
+            network_state = NetworkState(self.N, self.N) 
+            new_msgs = np.zeros((num_msg, self.L))
+            # get new X 
+            for i in range(num_msg):
+                j = np.random.randint(self.L)
+                new_msgs[i,j] = 1
+            X_new = new_msgs.dot(H_ref) + np.random.normal(0, std, size=(num_msg, self.N)) 
+            X_new[X_new<0] = 0
+
+            # expose only currently conn 
+            num_r, num_c = X_new.shape
+            mask = np.zeros((num_r, num_c))
+            table = {}
+            for a in out_conns:
+                mask[:,a] = 1
+                table[a] = list(X_new[:,a])
+            X_new = X_new * mask
+            print(out_conns)
+            print_mat(new_msgs, False)
+            print_mat(X_new, False)
+            print('table', table)
+
+            keep_candidates = []
+            for i in range(self.N):
+                if i != self.id:
+                    keep_candidates.append(i)
+
+            composes = comb_subset.get_config(
+                num_keep, 
+                out_conns,
+                self.L, 
+                network_state,
+                self.id)
+
+            print('composes', composes)
+            selector = Selector(self.id, False, out_conns, [], None)
+            best_compose, best, worst_compose, worst, is_random = selector.get_best_compose(
+                table, composes, 
+                num_keep)
+            selector.select_1hops(table, composes, num_msg, network_state)
+            for peer in best_compose:
+                network_state.add_in_connection(self.id, peer)
+
+            # selector.set_1hops(best_compose)
+            out_conns = list(best_compose)
+            cands = []
+            for i in range(self.N):
+                if i != self.id and i not in out_conns:
+                    cands.append(i)
+            out_rands = list(np.random.permutation(cands)[:num_rand])
+            out_conns += out_rands
+
+    def construct_graph(self):
+        G = nx.Graph()
+        for i, delay in self.node_delay.items():
+            for u in node.outs:
+                delay = self.ld[i][u] + delay/2 + self.node_delay[u].delay/2
+                assert(i != u)
+                G.add_edge(i, u, weight=delay)
+        return G
+
+
+
+    def run_mf_bandit(max_iter, num_append, std):
+        pass
         
     def start_mf_online(self, max_iter, num_append, std):
         X, X_noise, W_ref = self.construct_data(std)
@@ -85,20 +187,12 @@ class MF_tester:
             print('\t\t\t ******************************************************** niter '+
                     str(i) + ' ********************************************************' )
             W_est, H_est = self.single_mf(X_input, mask_input, W_input, H_input, False)
-            # print('W_est')
-            # print_mat(W_est, True)
-            # print('W_prev')
-            # print_mat(W_prev, True)
-            # print('H_est')
-            # print_mat(H_est, False)
-            # print('H_prev')
-            # print_mat(H_prev, False)
-
             _, _, W_reorder, H_reorder, _ = self.match_WH(W_est, H_est, W_prev, H_prev, False) 
             W_prev = W_reorder.copy()
             H_prev = H_reorder.copy()
 
-            W_score, H_score, W_reorder_ref, H_reorder_ref, match_map = self.match_WH(W_est, H_est, W_ref, H_ref, True) 
+            W_score, H_score, W_reorder_ref, H_reorder_ref, match_map = self.match_WH(
+                    W_est, H_est, W_ref, H_ref, True) 
 
             if prev_map != match_map:
                 print("\033[93m" + 'map change' + "\033[0m")
@@ -184,6 +278,13 @@ class MF_tester:
                 mask[:,a] = 1
             X = X * mask
             return X, mask
+        elif self.mask_method == '1hop':
+            num_r, num_c = X.shape
+            mask = np.zeros((num_r, num_c))
+            for a in arms:
+                mask[:,a] = 1
+            X = X * mask
+            return X, mask
         else:
             print('Error. Unknown mask method', self.mask_method)
             sys.exit(1)
@@ -225,7 +326,6 @@ class MF_tester:
 
     # H_ref used for generating new rows
     def rolling_data(self, X, mask, W, H_ref, num_msg, std):
-        print('rolling data', num_msg, self.T)
         new_msgs = np.zeros((num_msg, self.L))
         for i in range(num_msg):
             j = np.random.randint(self.L)
@@ -302,7 +402,7 @@ class MF_tester:
         elif method == '1D-linear':
             return self.construct_linear_H(self.inter_lat)
         elif method == 'datacenter':
-            return self.construct_datacenter_H(self.inter_lat)
+            return self.construct_datacenter_H(self.inter_lat, self.intra_lat)
         else:
             print('Error. Unknown H-dist', method)
             sys.exit(1)
@@ -327,7 +427,7 @@ class MF_tester:
         print_mat(H, False)
         return H
 
-    def construct_datacenter_H(self, inter_lat):
+    def construct_datacenter_H(self, inter_lat, intra_lat):
         H = np.zeros((self.L, self.N)) 
         node_region = {}
         num_node_per_region = self.N / self.L
@@ -336,11 +436,12 @@ class MF_tester:
         for l in range(self.L):
             for i in range(self.N):
                 if l == node_region[i]:
-                    H[l, i] = 0 
+                    H[l, i] = intra_lat
                 else:
                     H[l, i] = inter_lat
         print("datacenter H")
-        print_mat(H)
+        print(np.mean(H))
+        print_mat(H, False)
         return H
 
     # std is noise standard deviation
@@ -520,7 +621,8 @@ class MF_tester:
             # est_to_ori[est] = i 
         # print(m)
         # print(est_to_ori)
-        return est_to_ori, H_score
+        normalized_score = H_score / LA.norm(H, 'fro')
+        return est_to_ori, normalized_score
 
     def svd_init(self, X):
         A, S, B = svds(X, self.L)

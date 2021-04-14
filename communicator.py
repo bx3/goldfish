@@ -3,10 +3,10 @@ from collections import defaultdict
 import random
 
 class Note:
-    def __init__(self, nid, n_delay, in_lim, out_lim, init_outs): 
+    def __init__(self, nid, n_delay, in_lim, out_lim, out_conns): 
         self.ins =set()
-        self.ordered_outs = init_outs
-        self.outs = set(init_outs) 
+        self.ordered_outs = out_conns 
+        self.outs = set(out_conns) 
     
         self.id = nid
         self.node_delay = n_delay
