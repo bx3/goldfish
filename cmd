@@ -22,8 +22,10 @@ name=$3
 out_lim=$4
 num_region=$5
 use_node_hash=$6
+end_round=$7
+record_round=$(seq 0 $end_round)
 
-record_round="${@:7}"
+#record_round="${@:7}"
 
 dirname="${name}-seed${seed}"
 dirpath="analysis/$dirname"
@@ -43,6 +45,11 @@ if [ "$retval" -ne 0 ]; then
 	echo "simulation bug. Exit"
 	exit 1
 fi	
+
+# plot score
+score_plot_cmd="./script/plot_score.py $dirpath/logs/score0 $dirpath/score.png"
+echo ${score_plot_cmd}
+${score_plot_cmd}
 
 # Calculate it
 cd analysis 

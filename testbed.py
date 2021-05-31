@@ -27,7 +27,7 @@ def run_mf():
     num_region = int(sys.argv[5])
     use_node_hash = sys.argv[6]=='y'
 
-
+    assert(config.use_abs_time)
     loc, link_delay = net_init.load_network(config.input_json)
 
     record_epochs = [int(i) for i in sys.argv[7:]]
@@ -48,10 +48,6 @@ def run_mf():
             # config.num_node, 
             # subcommand,
             # out_lim)
-
-
-
-
     tester.print_mat(link_delay, False)
 
     if config.use_reduce_link:
@@ -96,6 +92,41 @@ def run_mf():
         )
     perigee.init_graph()
     perigee.start(max_epoch, record_epochs, config.num_msg)
+
+def run_rel_comp():
+    subcommand = sys.argv[1]
+    data_path = sys.argv[3]
+    out_lim = int(sys.argv[4])
+    num_region = int(sys.argv[5])
+    use_node_hash = sys.argv[6]=='y'
+    loc, link_delay = net_init.load_network(config.input_json)
+
+    record_epochs = [int(i) for i in sys.argv[7:]]
+    max_epoch = max(record_epochs) +1
+    window = int(config.num_msg*config.window_constant * math.ceil(num_region * math.log(config.num_node))) # T > L log N
+    
+    print(window, num_region, config.num_node)
+    node_delay = initnetwork.GenerateInitialDelay(config.num_node)
+    node_hash = readfiles.ReadHashFile(config.num_node)
+    adv_nodes = []
+    assert(config.use_abs_time == False)
+    perigee = Experiment(
+        node_hash,
+        link_delay,
+        node_delay,
+        config.num_node,
+        config.in_lim,
+        out_lim, 
+        num_region,
+        data_path,
+        adv_nodes,
+        window,
+        'rel_comp' ,
+        loc
+        )
+    perigee.init_graph()
+    perigee.start_rel_comp(max_epoch, record_epochs, config.num_msg)
+
 
 def run_2hop():
     subcommand = sys.argv[1]
@@ -300,6 +331,8 @@ def print_help():
     print('subcommand')
     print('\trun-2hop       seed[int] output_dir[str] num_out[int] num_msg[int] use_node_hash[y/n] rounds[intList]')
     print('\trun-mf         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
+    print('\trel-comp         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
+
     print('\tcomplete-graph seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] 1')
     print('\tmf-static      seed[int] help')
     print('\t1hop-static    seed[int] help')
@@ -321,6 +354,8 @@ if __name__ == '__main__':
         run_2hop()
     elif subcommand == 'run-mf':
         run_mf()
+    elif subcommand == 'rel-comp':
+        run_rel_comp()
     elif subcommand == '1hop-static':
         run_1hop_static()
     else:

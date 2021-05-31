@@ -32,11 +32,11 @@ class SparseTable:
             self.table.append(lines[i])
 
 class Optimizer:
-    def __init__(self, node_id, num_node, num_region, window, batch_type):
+    def __init__(self, node_id, num_cand, num_region, window, batch_type):
         self.table = [] # raw relative time records, each element is a dict:peer -> time list
         
         self.id = node_id
-        self.N = num_node
+        self.N = num_cand
         self.L = num_region # region = num out degree
         self.T = window # time window that discard old time data
         self.X = None #np.zeros(self.T, self.N) # array of array, col is num node, row is time

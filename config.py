@@ -39,7 +39,7 @@ use_2hop = False
 # optimizer
 window_constant = 2 
 num_msg = 6
-use_abs_time = True 
+use_abs_time = False 
 tol_obj = 0.00001    # exit optimization difference
 num_alt = 5000  # max exit alteration step
 max_step = 1  # within W H how many step

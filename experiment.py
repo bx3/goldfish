@@ -43,6 +43,8 @@ class Experiment:
 
         self.timer = time.time()
 
+        self.num_cand = num_node # could be less if num_node is large
+
         self.adversary = adversary.Adversary(sybils)
         self.snapshots = []
 
@@ -239,7 +241,7 @@ class Experiment:
         for i in range(self.num_node):
             self.optimizers[i] = Optimizer(
                 i,
-                self.num_node,
+                self.num_cand,
                 self.num_region,
                 self.window,
                 self.batch_type
@@ -397,6 +399,63 @@ class Experiment:
             for m in fixed_miners:
                 sorted_scores_by_miner.append(min_scores[m])
             logger.write_score(sorted_scores_by_miner)
+            
+    def start_rel_comp(self, max_epoch, record_epochs, num_msg):
+        network_state = NetworkState(self.num_node, self.in_lim) 
+        outs_conns = self.init_conns.copy()
+        prev_conns = outs_conns.copy()
+        init_write_epoch = None
+        while True:
+            oracle = NetworkOracle(config.is_dynamic, self.adversary.sybils, self.selectors)
+            network_state.reset(self.num_node, self.in_lim)
+            need_iter = self.decide_need_iter()
+            if not need_iter:
+                print('\t\t < epoch', epoch, 'start>')
+                if init_write_epoch is None:
+                    init_write_epoch = epoch
+
+                time_tables, abs_time_tables, broad_nodes = self.broadcast_msgs(num_msg)
+                self.accumulate_table(time_tables, abs_time_tables, num_msg, broad_nodes)
+                with open(self.log0, 'a') as w:
+                    str_list = [str(x) for x in outs_conns[0]]
+                    w.write(str(epoch) + '\t' + '\t'.join(str_list) + '\n')
+
+                total_msg += num_msg
+
+                # matrix factorization
+                # node_order = self.shuffle_nodes()
+                node_order = [0] #np.random.permutation([i for i in range(self.num_node)])[:3]
+
+                outs_conns = schedule.run_mf(
+                    self.nodes, 
+                    self.ld, 
+                    self.nd,
+                    self.nh, 
+                    self.optimizers,
+                    self.sparse_tables,
+                    self.bandits,
+                    node_order, 
+                    time_tables, 
+                    abs_time_tables,
+                    self.in_lim,
+                    self.out_lim, 
+                    self.num_region,
+                    network_state,
+                    num_msg,
+                    self.pools,
+                    self.loggers,
+                    epoch,
+                    prev_conns,
+                    self.broad_nodes,
+                    self.topo_type,
+                    self.fixed_miners
+                    )
+
+                prev_conns = outs_conns.copy()
+
+
+        print('start_rel_comp')
+
 
     def start(self, max_epoch, record_epochs, num_msg):
         network_state = NetworkState(self.num_node, self.in_lim) 

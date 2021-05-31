@@ -121,6 +121,19 @@ def bandit_selection(bandit, W, X, network_state, outs_neighbors, out_lim, num_m
     # pulled_arms = bandit.get_pulled_arms()
     return arms
 
+def run_rel_comp(nodes, ld, nd, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch, curr_conns, broad_nodes, topo_type, fixed_points):
+    matrix_comp(
+        optimizers, 
+        sparse_tables,  
+        bandits, 
+        update_nodes, 
+        num_msg, 
+        pools, 
+        loggers, 
+        epoch,
+        broad_nodes)
+
+
 def run_mf(nodes, ld, nd, nh, optimizers, sparse_tables, bandits, update_nodes, time_tables, abs_time_tables, in_lim, out_lim, num_region, network_state, num_msg, pools, loggers, epoch, curr_conns, broad_nodes, topo_type, fixed_points):
     outs_neighbors = defaultdict(list)
     num_node = len(nodes)
@@ -391,6 +404,30 @@ def print_mat(A):
     for i in range(A.shape[0]):
         text = ["{:4d}".format(int(a)) for a in A[i]]
         print(' '.join(text))
+
+
+def matrix_comp(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools, loggers, epoch, broad_nodes):
+    args = []
+    init_new = None
+
+    for i in update_nodes:
+        opt = optimizers[i]
+        st = sparse_tables[i]
+        # used with dc
+        nodes_per_region = int((opt.N-1)/opt.L)
+
+        arg = (i, st.table[-opt.window:], opt.N, opt.L)
+        args.append(arg)
+
+    results = pools.starmap(solver.run_pgd_nmf, args)
+
+    assert(len(results) == len(update_nodes))
+    for i in range(len(update_nodes)):
+        W, H, opt, j = results[i]
+        # loggers[j].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
+        optimizers[j].store_WH(W, H)
+
+
 
 def multithread_matrix_factor(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools, loggers, epoch, broad_nodes):
     args = []
