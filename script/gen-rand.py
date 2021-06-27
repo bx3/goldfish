@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 
-np.random.seed(17)
+np.random.seed(15)
 
 def write_adj_matrix(G, num_node, outfile):
     with open(outfile, 'w') as w:
@@ -35,58 +35,46 @@ def get_dijkstra_dist(G, num_node):
 
 
 if len(sys.argv) < 2:
-    print('num_node<int>  output')
+    print('num_node<int>')
+    print('num_pub<int>')
     sys.exit(1)
 
 num_node = int(sys.argv[1])
-noise_std = 10
+num_pub = int(sys.argv[2])
 node_pos = {}
 square_len = 250
 single_node_dis = 200
 for i in range(num_node):
     node_pos[i] = np.random.randint(0, high=square_len, size=2)
 
-adj_table = np.zeros((num_node, num_node))
-for i in range(num_node):
-    for j in range(i+1, num_node):
-        if i == 0:
-            d = int(single_node_dis + np.random.normal(0,noise_std))
-            adj_table[i,j] = d
-            adj_table[j,i] = d 
-        else:
-            d = math.ceil(math.sqrt((node_pos[i][0]-node_pos[j][0])**2+(node_pos[i][1]-node_pos[j][1])**2))
-            adj_table[i,j] = d
-            adj_table[j,i] = d
-# for i in range(num_node):
-    # text = ["{:4d}".format(int(a)) for a in adj_table[i]]
-    # print(text)
-
-G = nx.Graph()
-for i in range(num_node):
-    for j in range(num_node):
-        G.add_edge(i, j, lat = adj_table[i,j])
-
-dijkstra_table = get_dijkstra_dist(G, num_node)
-# print(dijkstra_table[0])
-
-# print(dijkstra_table[0] - adj_table[0])
-
+all_nodes = [i for i in range(num_node)]
+pubs = np.random.choice(all_nodes, num_pub, replace=False)
 
 nodes = []
 for i in range(num_node):
+    adj = []
+    for j in range(num_node):
+        dis = math.ceil( math.sqrt((node_pos[i][0]-node_pos[j][0])**2 +
+                      (node_pos[i][1]-node_pos[j][1])**2  ))
+        adj.append(dis)
+
+    role = 'LURK'
+    if i in pubs:
+        role = 'PUB'
+
     node = {
         'id': i,
+        'center': None,
+        'role': role,
         'x': int(node_pos[i][0]),
         'y': int(node_pos[i][1]),
-        'adj': list(dijkstra_table[i,:])
+        'adj': adj 
         }
     nodes.append(node)
 
 summary = {
     'num_node': num_node,
-    'noise_std': noise_std,
     'square_length': square_len,
-    'single_node_dis': single_node_dis
     }
 setup = {'summary': summary, 'nodes': nodes}
 

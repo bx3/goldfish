@@ -130,7 +130,7 @@ for dirname in data_dirname:
 
 
 
-ylim = [min_y, max_y]
+ylim = [0, max_y]
 xlim = [0, num_node]
 
 num_row = 2

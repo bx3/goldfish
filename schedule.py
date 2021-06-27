@@ -1,20 +1,23 @@
 import numpy as np
 import sys
 import random
-import config 
-import visualizer
-import initnetwork
-from oracle import PeersInfo
+import itertools
+import networkx as nx
 import copy
-import comb_subset
 from collections import namedtuple
 from collections import defaultdict
 import math 
 import time
-import solver
+
 from numpy import linalg as LA
-import itertools
-import networkx as nx
+
+import config 
+
+from utils import visualizer
+from utils import comb_subset
+
+from mat_complete import mat_comp_solver
+from mat_factor import solver
 
 # networkstate and oracle may look redundant, but oracle is used to answering 2hop
 # networkstate is essential for checking if connection is possible
@@ -691,3 +694,49 @@ def get_argmax_W(W_est):
     for i, c in enumerate(chosen):
         W_chosen[i,c] = 1
     return W_chosen
+
+def run_mc(completers, selectors, sparse_tables, network_state, epoch, update_nodes, pools, broads):
+    MC_get_HC(completers, sparse_tables, update_nodes, pools, broads)
+    conns = MC_select(completers, selectors, network_state, update_nodes, broads)
+    return conns
+
+def MC_get_HC(completers, sparse_tables, update_nodes, pools, broads):
+    args = []
+    for i in update_nodes:
+        cpl = completers[i]
+        st = sparse_tables[i]
+        arg = (i, st.table[-cpl.T:], broads[-cpl.T:])
+        args.append(arg)
+    results = pools.starmap(mat_comp_solver.run, args)
+    assert(len(results) == len(update_nodes))
+
+    for i in range(len(update_nodes)):
+        H, C, opt, j, ids = results[i]
+        completers[j].store_HC(H, C, ids)
+
+    # debug
+    for i in update_nodes:
+        cpl = completers[i]
+        st = sparse_tables[i]
+        X, M, _, _ = mat_comp_solver.construct_table(st.table[-cpl.T:], i, ['outgoing'])
+        X_full, M_full, _, ids_full = mat_comp_solver.construct_table(st.abs_table[-cpl.T:], i, ['outgoing', 'incoming'])
+
+        completers[i].store_raw_table(X, M, broads, X_full, M_full, ids_full) # for debug
+
+
+
+def MC_select(completers, selectors, network_state, update_nodes, broads):
+    outs_conns = {}
+    for i in update_nodes:
+        selector = selectors[i]
+        completer = completers[i]
+        outs = selector.run_selector(completer.H, completer.ids, broads)
+        outs_conns[i] = outs
+
+    return outs_conns
+
+
+
+
+
+

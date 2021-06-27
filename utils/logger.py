@@ -28,6 +28,22 @@ class Logger:
             writer.write(' '.join(line) + '\n')
 
 
+    def write_conns_mat(self, conns, ld):
+         with open(self.filename, 'a') as writer:
+            ticks = ['___'] + [str(a).rjust(5, '_') for a in range(len(conns))]
+            writer.write('_'.join(ticks) + '\n')
+            for i in range(len(conns)):
+                text = [str(i) +  ' |']
+                for j in range(len(conns)):
+                    if j in conns[i] or i in conns[j]:
+                        # link delay should be symmetric
+                        assert(ld[i][j] == ld[j][i])
+                        text.append("{:5d}".format(int(ld[i][j])))
+                    else:
+                        text.append("     ")
+                line = ' '.join(text)
+                writer.write(line + '\n')
+
 
         
 
@@ -90,12 +106,18 @@ class Logger:
         with open(self.filename, 'a') as writer:
             writer.write(txt + '\n')
 
-    def format_mat(self, A, is_float):
+    def format_mat(self, A, label_ticks, is_float):
         lines = []
-        if not is_float:
-            ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+        if label_ticks is not None:
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in label_ticks]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in label_ticks]
         else:
-            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
         lines.append('_' + '_'.join(ticks)+'_ ')
         for i in range(A.shape[0]):
             if not is_float:
@@ -173,12 +195,18 @@ class Logger:
             line = ' '.join(text)
             print('[' + line + ' ]')
 
-    def format_masked_mat(self, A, mask, is_float):
+    def format_masked_mat(self, A, mask, label_ticks, is_float):
         lines = []
-        if not is_float:
-            ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+        if label_ticks is not None:
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in label_ticks]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in label_ticks]
         else:
-            ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
 
         lines.append('_' + '_'.join(ticks)+'_ ')
         for i in range(A.shape[0]):

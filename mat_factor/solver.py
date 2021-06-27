@@ -6,7 +6,6 @@ from scipy.sparse.linalg import svds
 # import cvxpy as cvx
 import time
 import config
-import nndsvd
 
 # A is W, B is H, k is rank which is L, X is observation, new_msgs_ind is start index
 def run_pgd_nmf(i, slots, N, L, W, H):

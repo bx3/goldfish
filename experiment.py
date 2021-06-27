@@ -1,44 +1,51 @@
 import sys
 import os
 import config
-from oracle import PeersInfo
-from communicator import Note
 import networkx as nx
-import writefiles
-import schedule 
-import adversary
-from oracle import NetworkOracle 
-from selector import Selector
-from collections import defaultdict
-from schedule import NetworkState
 import time
 import numpy as np
-import comm_network
 import random
-from optimizer import Optimizer
-from optimizer import SparseTable
-from bandit import Bandit
-import initnetwork
 import math
-import logger
-import solver
+from collections import defaultdict
 from multiprocessing.pool import Pool
 import matplotlib.pyplot as plt
 
+from network.oracle import PeersInfo
+from network.oracle import NetworkOracle 
+from network.communicator import Communicator
+from network.sparse_table import SparseTable
+from network import comm_network
+
+import schedule 
+import net_init
+
+from utils import logger
+
+from sec_hop import adversary
+from sec_hop.selector import Selector
+
+from mat_factor.optimizer import Optimizer
+from mat_factor.bandit import Bandit
+from mat_factor import solver
+
+from mat_complete.completer import Completer
+from mat_complete.state_selector import StateSelector
 
 class Experiment:
-    def __init__(self, node_hash, link_delay, node_delay, num_node, in_lim, out_lim, num_region, name, sybils, window, method, loc):
-        self.nh = node_hash
+    def __init__(self, link_delay, role, node_delay, num_node, in_lim, out_lim, name, sybils, window, method, loc, num_new):
         self.ld = link_delay
         self.nd = node_delay
+        self.proc_delay = node_delay
         self.loc = loc
         self.num_node = num_node
+        self.role = role
         self.nodes = {} # nodes are used for communicating msg in network
         self.conns = {} # key is node, value if number of connection
         self.selectors = {} # selectors for choosing outgoing conn for next time
         self.in_lim = in_lim
         self.out_lim = out_lim
-        self.num_region = num_region
+        # self.num_region = num_region
+        self.num_new = num_new
         self.outdir = name
 
         self.timer = time.time()
@@ -47,72 +54,54 @@ class Experiment:
 
         self.adversary = adversary.Adversary(sybils)
         self.snapshots = []
-
-        self.pools = Pool(processes=config.num_thread) 
+        num_thread = num_node
+        self.pools = Pool(processes=num_thread) 
 
         self.optimizers = {}
+        self.completers = {}
+        self.state_selectors = {}
+
         self.sparse_tables = {}
         self.bandits = {}
         self.window = window 
 
         self.init_conns = None
+        self.conns_snapshot = []
 
         self.broad_nodes = [] # hist of broadcasting node
         self.method = method
         self.batch_type = 'rolling' # or rolling
         self.broad_method = 'fixed_miners' # fixed_point, rand, hash_dist
         self.topo_type = 'rand'
-        self.fixed_miners = None
-
+        self.fixed_miners = []
+        for i, role in self.role.items():
+            if role == "PUB":
+                self.fixed_miners.append(i)
+        print('fixed miners', self.fixed_miners)
         # init dc parameter
-        if self.topo_type == 'dc':
-            self.nodes_per_region = int((self.num_node-1) / self.num_region)
-
-            self.init_conns = initnetwork.gen_dc_connected(
-                self.num_node,
-                config.num_dc_region,
-                self.out_lim,
-                'y'
-                )
-        elif self.topo_type == 'rand':
-            self.init_conns = initnetwork.generate_random_outs_conns(
-                self.out_lim,
-                3, # TODO self.in_lim,
-                self.num_node,
-                'y'
-                )
-        else:
-            print('Unknown topo type')
-            sys.exit(1)
-
-        self.save_conn_plot() 
-
-
-        if self.broad_method == 'fixed_miners':
-            if self.topo_type == 'dc':
-                nodes_per_region = int((self.num_node - 1)/(self.num_region))
-                self.fixed_miners = [i*nodes_per_region+1 for i in range(self.num_region)]
-            elif self.topo_type == 'rand':
-                self.fixed_miners = [15,24,30]
-                self.get_dist_among_fixed_points(self.init_conns.copy(), self.out_lim, self.fixed_miners)
-
-                # self.fixed_miners = self.get_rand_graph_fixed_points(self.init_conns.copy(), self.out_lim)
+        self.init_conns = net_init.generate_random_outs_conns(
+            self.out_lim,
+            self.in_lim,
+            self.num_node,
+            'n'
+            )
 
         # log setting
-        self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
+        # self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
         self.logdir = self.outdir + '/' + 'logs'
         if not os.path.exists(self.logdir):
             os.makedirs(self.logdir)
         self.loggers = {}
         self.init_logger()
-        self.log0 = self.outdir + '/' + '0.log'
-        with open(self.log0, 'w') as w:
-            pass
+
+        self.dist_dir = os.path.join(self.outdir, 'dists')
+        if not os.path.exists(self.dist_dir):
+            os.makedirs(self.dist_dir)
 
     def save_conn_plot(self):
         conns = self.init_conns.copy()
         conns.pop(0, None)
-        print('init conns', conns)
+        # print('init conns', conns)
         G = nx.Graph()
         for i, cs in conns.items():
             for j in cs:
@@ -125,7 +114,7 @@ class Experiment:
 
     def get_dist_among_fixed_points(self, outs_conns, num_choose, fixed_miners):
         outs_conns.pop(0, None)
-        G = initnetwork.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
+        G = net_init.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
         num = len(fixed_miners)
         for i in range(num):
             m = fixed_miners[i]
@@ -138,7 +127,7 @@ class Experiment:
     # three points
     def get_rand_graph_fixed_points(self, outs_conns, num_choose):
         outs_conns.pop(0, None)
-        G = initnetwork.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
+        G = net_init.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
         miners = []
         miner_cands = [i for i in range(1, len(outs_conns))]
 
@@ -237,12 +226,34 @@ class Experiment:
             out_neighbor[i] = self.nodes[i].ordered_outs
         return out_neighbor
 
+    def init_completer(self):
+        for i in range(self.num_node):
+            self.completers[i] = Completer(
+                    i,
+                    self.window,
+                    self.loggers[i]
+                    )
+    def init_state_selector(self):
+        for i in range(self.num_node):
+            node_init_state = self.init_conns[i].copy()
+            np.random.shuffle(node_init_state)
+            state = node_init_state[:self.out_lim]
+            self.state_selectors[i] = StateSelector(
+                    i,
+                    self.num_node,
+                    self.out_lim,
+                    self.in_lim,
+                    state,
+                    self.num_new,
+                    self.loggers[i]
+                    )
+
     def init_optimizers(self):
         for i in range(self.num_node):
             self.optimizers[i] = Optimizer(
                 i,
                 self.num_cand,
-                self.num_region,
+                None,
                 self.window,
                 self.batch_type
             )
@@ -251,7 +262,7 @@ class Experiment:
             self.sparse_tables[i] = SparseTable(
                 i,
                 self.num_node,
-                self.num_region,
+                None,
                 self.window,
             )
 
@@ -259,7 +270,7 @@ class Experiment:
         for i in range(self.num_node):
             self.bandits[i] = Bandit(
                 i,
-                self.num_region,
+                None,
                 self.num_node,
                 config.alpha,
                 config.ucb_method
@@ -274,7 +285,7 @@ class Experiment:
         outs_conns = self.init_conns.copy()
         for i in range(self.num_node):
             node_delay = self.nd[i]
-            self.nodes[i] = Note(
+            self.nodes[i] = Communicator(
                 i,
                 node_delay,
                 self.in_lim,
@@ -282,31 +293,64 @@ class Experiment:
                 outs_conns[i]
             )
         ins_conns = self.update_ins_conns()
-        self.init_selectors(outs_conns, ins_conns)
-        self.init_optimizers()
         self.init_sparse_tables()
-        self.init_bandits()
-
-        # for i in range(config.num_node):
-            # print(i, outs_neighbors[i], ins_conns[i])
-        # sys.exit(1)
+        # for 2 hop
+        # self.init_selectors(outs_conns, ins_conns)
+        # # for mf
+        # self.init_optimizers()
+        # self.init_bandits()
+        # for mc
+        self.init_completer()
+        self.init_state_selector()
 
     def take_snapshot(self, epoch):
-        name =  str(config.network_type)+'_'+str(config.method)+"V1"+"Round"+str(epoch)+".txt"
-        outpath = self.outdir + "/" + name
-            
-        G = self.construct_graph()
-        outs_neighbors = self.get_outs_neighbors()
-
-        # structure_name =  self.outdir + "/" + 'structure_' +  str(epoch) + '.txt'
-        # writefiles.write_conn(structure_name, outs_neighbors)
-
-        writefiles.write(outpath, G, self.nd, outs_neighbors, self.num_node)
-
+        name = "epoch"+str(epoch)+".txt"
+        outpath = os.path.join(self.dist_dir, name)
+        self.write_cost(outpath)
         curr_time = time.time()
         elapsed = curr_time - self.timer 
         self.timer = curr_time
         print(" * Recorded at the end of ", epoch)
+
+    def write_cost(self, outpath):
+        G = self.construct_graph()
+    
+        ## 
+        ##  Commented are sanity check
+        ##
+        # start_t = time.time()
+        # old_dict = np.zeros((self.num_node, self.num_node))
+        # for i in range(self.num_node):
+            # length_o, path_o = nx.single_source_dijkstra(G, i)
+            # for j in range(self.num_node):
+                # old_dict[i][j] = int(length_o[j] + self.proc_delay[i]/2.0 + self.proc_delay[i]/2.0)
+
+        # print('old finish in', time.time() - start_t)
+
+        # start_t = time.time()
+        # new_dict = np.zeros((self.num_node, self.num_node))
+        # length = dict(nx.all_pairs_dijkstra_path_length(G))
+        # for i in range(self.num_node):
+            # for j in range(self.num_node):
+                # new_dict[i][j] = int(length[i][j] - self.proc_delay[i]/2.0 + self.proc_delay[j]/2.0)
+        # print('new finish in', time.time() - start_t)
+
+        # for i in range(self.num_node):
+            # for j in range(self.num_node):
+                # assert(new_dict[i][j] == old_dict[i][j])
+
+        # sys.exit(1)
+        
+        with open(outpath, 'w') as w:
+            length = dict(nx.all_pairs_dijkstra_path_length(G))
+            for i in range(self.num_node):
+                for j in range(self.num_node):
+                    cost = length[i][j] - self.proc_delay[i]/2.0 + self.proc_delay[j]/2.0
+                    w.write(str(cost) + ' ')
+                w.write('\n')
+
+                
+
 
     def init_selectors(self, out_conns, in_conns):
         for u in range(self.num_node):
@@ -325,10 +369,8 @@ class Experiment:
             broad_node = -1
             if self.broad_method == 'fixed_miners':
                 broad_node = np.random.choice(self.fixed_miners)
-            elif self.broad_method == 'rand':
-                broad_node = np.random.choice([i for i in range(1, self.num_node)])
-            elif self.broad_method == 'hash_dist':
-                broad_node = comm_network.get_broadcast_node(self.nh)
+            # elif self.broad_method == 'hash_dist':
+                # broad_node = comm_network.get_broadcast_node(self.nh)
             else:
                 print('Unknown. broadcast method')
                 sys.exit(1)
@@ -338,10 +380,10 @@ class Experiment:
                 broad_node, 
                 self.nodes, 
                 self.ld, 
-                self.nh, 
                 time_tables, 
                 abs_time_tables
                 )
+        print("broad_nodes", broad_nodes)
         return time_tables, abs_time_tables, broad_nodes
 
     def update_selectors(self, outs_conns, ins_conn):
@@ -364,27 +406,25 @@ class Experiment:
 
     def accumulate_optimizer(self, time_table, abs_time_tables, num_msg):
         for i in range(self.num_node):
-            if config.use_abs_time:
-                self.optimizers[i].append_time(abs_time_tables[i], num_msg)
-            else:
-                self.optimizers[i].append_time(time_table[i])
+            self.optimizers[i].append_time(abs_time_tables[i], num_msg, 'abs_time')
+            self.optimizers[i].append_time(time_table[i], num_msg, 'rel_time')
 
     def accumulate_table(self, time_table, abs_time_tables, num_msg, broad_nodes):
         for i in range(self.num_node):
-            # broadcasting nodes cannot receive msg from others
-            if i not in broad_nodes:
-                if config.use_abs_time:
-                    self.sparse_tables[i].append_time(abs_time_tables[i], num_msg)
-                else:
-                    self.sparse_tables[i].append_time(time_table[i])
+            self.sparse_tables[i].append_time(abs_time_tables[i], num_msg, 'abs_time')
+            self.sparse_tables[i].append_time(time_table[i], num_msg, 'rel_time')
+
     def decide_need_iter(self):
+        for i in range(self.num_node):
+            print('Table', i, 'len', len(self.sparse_tables[i].table))
+
         for i in range(self.num_node):
             if len(self.sparse_tables[i].table) < self.window:
                 return True 
         return False 
 
     def evaluate_conns_on_fixed_miners(self, node_order, outs_conns, fixed_miners, loggers):
-        G = initnetwork.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
+        G = net_init.construct_graph_by_outs_conns(outs_conns, self.nd, self.ld)
         for u in node_order:
             logger = loggers[u]
             distances, paths = nx.single_source_dijkstra(G, u)
@@ -401,7 +441,7 @@ class Experiment:
             logger.write_score(sorted_scores_by_miner)
             
     def start_rel_comp(self, max_epoch, record_epochs, num_msg):
-        network_state = NetworkState(self.num_node, self.in_lim) 
+        network_state = schedule.NetworkState(self.num_node, self.in_lim) 
         outs_conns = self.init_conns.copy()
         prev_conns = outs_conns.copy()
         init_write_epoch = None
@@ -456,23 +496,97 @@ class Experiment:
 
         print('start_rel_comp')
 
+    def run_mc(self, max_epoch, record_epochs, num_msg, epoch, network_state):
+        num_msg = int(math.ceil(self.window / 2))
+        running_conns = self.conns_snapshot[-1].copy()
+
+        time_tables, abs_time_tables, broad_nodes = self.broadcast_msgs(num_msg)
+        self.accumulate_table(time_tables, abs_time_tables, num_msg, broad_nodes)
+        start_mc = None
+        outs_conns = None
+        
+        if epoch < 1:
+            # randomly change states
+            outs_conns = net_init.generate_random_outs_conns(
+                        self.out_lim, 
+                        self.in_lim, 
+                        self.num_node,
+                        'n')
+            ins_conn = self.update_conns(outs_conns)
+            for i in range(self.num_node):
+                logger = self.loggers[i]
+                logger.write_str('>epoch '+str(epoch) + " Random conn")
+                logger.write_str('running conns: '+ str(running_conns[i])+' new conns ' + str(outs_conns[i]))
+                logger.write_conns_mat(running_conns, self.ld)
+        else:
+            last_conns = self.conns_snapshot[-2]
+
+            for i in range(self.num_node):
+                logger = self.loggers[i]
+                logger.write_str('>epoch '+str(epoch))
+                logger.write_str('running conns: '+ str(running_conns[i])+ " last-conns: "+str(last_conns[i]))
+                logger.write_conns_mat(running_conns, self.ld)
+
+            # run mc algo 
+            # print('epoch', epoch, 'mc', memory_conns )
+            # for i in range(1):
+                # print('node', i, time_tables[i])
+                # print(self.sparse_tables[i].table)
+                # print()
+            # sys.exit(1)
+            node_order = [i for i in range(self.num_node)]
+            outs_conns = schedule.run_mc(
+                    self.completers,
+                    self.state_selectors,
+                    self.sparse_tables,
+                    network_state,
+                    epoch,
+                    node_order,
+                    self.pools,
+                    self.broad_nodes
+                    )
+            start_mc = epoch
+            ins_conn = self.update_conns(outs_conns)
+        return outs_conns, start_mc
+
 
     def start(self, max_epoch, record_epochs, num_msg):
-        network_state = NetworkState(self.num_node, self.in_lim) 
+        network_state = schedule.NetworkState(self.num_node, self.in_lim) 
         total_msg = 0
         time_tables = None
-        if not config.use_matrix_completion:
+        if config.select_method == '2hop':
             self.window = 0
         outs_conns = self.init_conns.copy()
-        prev_conns = outs_conns.copy()
+        last_conns = outs_conns.copy()
+        self.conns_snapshot.append(self.init_conns.copy())
         num_snapshot = 0
         init_write_epoch = None 
         epoch = 0
         while True:
-            oracle = NetworkOracle(config.is_dynamic, self.adversary.sybils, self.selectors)
+            oracle = NetworkOracle(
+                config.is_dynamic, 
+                self.adversary.sybils, 
+                self.selectors)
+
             network_state.reset(self.num_node, self.in_lim)
 
-            if self.method == 'mf-bandit':
+            if num_snapshot == len(record_epochs):
+                break
+
+            if self.method == 'mc':
+                outs_conns, start_mc = self.run_mc(
+                        max_epoch, record_epochs, num_msg, 
+                        epoch, network_state)
+                self.conns_snapshot.append(outs_conns)
+                if start_mc is not None and init_write_epoch is None:
+                    init_write_epoch = epoch
+
+                if (init_write_epoch is not None) and (epoch-init_write_epoch in record_epochs):
+                    print(epoch-init_write_epoch)
+                    self.take_snapshot(epoch-init_write_epoch)
+                    num_snapshot += 1
+
+            elif self.method == 'mf':
                 # print(outs_conns)
                 epoch_start = time.time()
                 need_iter = self.decide_need_iter()
@@ -489,7 +603,6 @@ class Experiment:
 
                     total_msg += num_msg
 
-                    # matrix factorization
                     # node_order = self.shuffle_nodes()
                     node_order = [0] #np.random.permutation([i for i in range(self.num_node)])[:3]
 
@@ -512,13 +625,13 @@ class Experiment:
                         self.pools,
                         self.loggers,
                         epoch,
-                        prev_conns,
+                        last_conns,
                         self.broad_nodes,
                         self.topo_type,
                         self.fixed_miners
                         )
 
-                    prev_conns = outs_conns.copy()
+                    last_conns = outs_conns.copy()
                     # structure_name =  self.outdir + "/" + 'structure_' +  str(epoch-init_write_epoch) + '.txt'
                     # writefiles.write_conn(structure_name, outs_conns)
 
@@ -550,15 +663,16 @@ class Experiment:
                     # self.log_table(epoch, 1)
                     
                     total_msg += 1
-                    rand_peers = []
-                    for _ in range(self.out_lim):
-                        cands = [i for i in range(1, self.num_node)]
-                        k = np.random.choice(cands) 
-                        while 0 == k or k in rand_peers: 
-                            k = np.random.choice(cands)         
-                        rand_peers.append(k)
+                    ### fixed node 0 conn
+                    # rand_peers = []
+                    # for _ in range(self.out_lim):
+                        # cands = [i for i in range(1, self.num_node)]
+                        # k = np.random.choice(cands) 
+                        # while 0 == k or k in rand_peers: 
+                            # k = np.random.choice(cands)         
+                        # rand_peers.append(k)
 
-                    outs_conns[0] = rand_peers
+                    # outs_conns[0] = rand_peers
                     # print('rand outs_conns')
                     # print(outs_conns)
                     # print(outs_conns)
@@ -571,11 +685,11 @@ class Experiment:
                         # True,
                         # )
                     # print('clusetr')
-                    # outs_conns = initnetwork.generate_random_outs_conns(
-                        # self.out_lim, 
-                        # self.in_lim, 
-                        # self.num_node)
-                    prev_conns = outs_conns.copy()
+                    outs_conns = net_init.generate_random_outs_conns(
+                        self.out_lim, 
+                        self.in_lim, 
+                        self.num_node)
+                    last_conns = outs_conns.copy()
                 # updates connections
                     ins_conn = self.update_conns(outs_conns)
 

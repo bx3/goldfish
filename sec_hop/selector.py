@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import random
 import config
-from oracle import PeersInfo
+from network.oracle import PeersInfo
 from collections import namedtuple
 from collections import defaultdict 
 # for multithread

@@ -1,6 +1,6 @@
 import numpy as np
-import solver
-import nndsvd
+
+
 from scipy.sparse.linalg import svds
 from scipy.linalg import eigh
 import sys
@@ -10,11 +10,15 @@ from numpy import linalg as LA
 import itertools
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from bandit import Bandit
+
 from schedule import NetworkState
 import os
-import comb_subset
-from selector import Selector
+from utils import comb_subset
+
+from mat_factor.bandit import Bandit
+from mat_factor import solver
+
+from sec_hop.selector import Selector
 
 class MF_tester:
     def __init__(self, T, N, L, num, out_name, add_new_data_type, num_mask_per_row, method, init_method, mask_method):

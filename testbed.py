@@ -2,8 +2,6 @@
 import numpy as np
 import sys
 import random 
-import readfiles
-
 if len(sys.argv) >= 3:
     seed_num = int(sys.argv[2])
     np.random.seed(seed_num)
@@ -12,13 +10,50 @@ if len(sys.argv) >= 3:
 
 import time
 import config
-import initnetwork
-import readfiles
 import math
-import tester
+
+from mat_factor import tester
+from sec_hop import selector
 from experiment import Experiment
 import matplotlib.pyplot as plt
 import net_init
+
+def run_mc():
+    subcommand = sys.argv[1]
+    data_path = sys.argv[3]
+    out_lim = int(sys.argv[4])
+    num_new = int(sys.argv[5])
+    input_json = sys.argv[6]
+    loc, link_delay, role, proc_delay = net_init.load_network(input_json)
+    record_epochs = [int(i) for i in sys.argv[7:]]
+    max_epoch = max(record_epochs) +1
+    num_node = len(loc)
+    num_msg =  out_lim*3  
+    window = 2*num_msg
+    in_lim = num_node
+
+    print("\033[93m" + 'num msg per topo '+ str(num_msg) +  "\033[0m")
+    print("\033[93m" + 'mat complete window size'+ str(window) +  "\033[0m")
+
+    start = time.time()
+    adv_nodes = [i for i in range(config.num_adv)]
+    perigee = Experiment(
+        link_delay,
+        role,
+        proc_delay,
+        num_node,
+        in_lim,
+        out_lim, 
+        data_path,
+        adv_nodes,
+        window,
+        config.select_method,
+        loc,
+        num_new
+        )
+    perigee.init_graph()
+    perigee.start(max_epoch, record_epochs, num_msg)
+
 
 def run_mf():
     subcommand = sys.argv[1]
@@ -26,17 +61,18 @@ def run_mf():
     out_lim = int(sys.argv[4])
     num_region = int(sys.argv[5])
     use_node_hash = sys.argv[6]=='y'
+    input_json = sys.argv[7]
 
     assert(config.use_abs_time)
-    loc, link_delay = net_init.load_network(config.input_json)
+    loc, link_delay = net_init.load_network(input_json)
 
-    record_epochs = [int(i) for i in sys.argv[7:]]
+    record_epochs = [int(i) for i in sys.argv[8:]]
     max_epoch = max(record_epochs) +1
     window = int(config.num_msg*config.window_constant * math.ceil(num_region * math.log(config.num_node))) # T > L log N
     
     print(window, num_region, config.num_node)
-    node_delay = initnetwork.GenerateInitialDelay(config.num_node)
-    node_hash = readfiles.ReadHashFile(config.num_node)
+    node_delay = net_init.GenerateInitialDelay(config.num_node)
+    node_hash = None
     # [LinkDelay,NodeHash,NodeDelay] = readfiles.Read(NodeDelay, NetworkType, num_node)
 
     # [ node_delay, 
@@ -48,11 +84,11 @@ def run_mf():
             # config.num_node, 
             # subcommand,
             # out_lim)
-    tester.print_mat(link_delay, False)
+    # tester.print_mat(link_delay, False)
 
     if config.use_reduce_link:
         print("\033[91m" + 'Use reduced link latency' + "\033[0m")
-        initnetwork.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
+        net_ini.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
     else:
         print("\033[93m" + 'Not use reduced link latency'+ "\033[0m")
 
@@ -99,88 +135,91 @@ def run_rel_comp():
     out_lim = int(sys.argv[4])
     num_region = int(sys.argv[5])
     use_node_hash = sys.argv[6]=='y'
-    loc, link_delay = net_init.load_network(config.input_json)
+    input_json = sys.argv[7]
 
-    record_epochs = [int(i) for i in sys.argv[7:]]
-    max_epoch = max(record_epochs) +1
-    window = int(config.num_msg*config.window_constant * math.ceil(num_region * math.log(config.num_node))) # T > L log N
+    loc, link_delay = net_init.load_network(input_json)
+
+    # record_epochs = [int(i) for i in sys.argv[8:]]
+    # max_epoch = max(record_epochs) +1
+    # window = int(config.num_msg*config.window_constant * math.ceil(num_region * math.log(config.num_node))) # T > L log N
     
-    print(window, num_region, config.num_node)
-    node_delay = initnetwork.GenerateInitialDelay(config.num_node)
-    node_hash = readfiles.ReadHashFile(config.num_node)
-    adv_nodes = []
-    assert(config.use_abs_time == False)
-    perigee = Experiment(
-        node_hash,
-        link_delay,
-        node_delay,
-        config.num_node,
-        config.in_lim,
-        out_lim, 
-        num_region,
-        data_path,
-        adv_nodes,
-        window,
-        'rel_comp' ,
-        loc
-        )
-    perigee.init_graph()
-    perigee.start_rel_comp(max_epoch, record_epochs, config.num_msg)
+    # print(window, num_region, config.num_node)
+    # node_delay = initnetwork.GenerateInitialDelay(config.num_node)
+    # node_hash = readfiles.ReadHashFile(config.num_node)
+    # adv_nodes = []
+    # assert(config.use_abs_time == False)
+    # perigee = Experiment(
+        # node_hash,
+        # link_delay,
+        # node_delay,
+        # config.num_node,
+        # config.in_lim,
+        # out_lim, 
+        # num_region,
+        # data_path,
+        # adv_nodes,
+        # window,
+        # 'rel_comp' ,
+        # loc
+        # )
+    # perigee.init_graph()
+    # perigee.start_rel_comp(max_epoch, record_epochs, config.num_msg)
 
 
 def run_2hop():
-    subcommand = sys.argv[1]
-    data_path = sys.argv[3]
-    out_lim = int(sys.argv[4])
-    num_msg = int(sys.argv[5])
-    use_node_hash = sys.argv[6]=='y'
+    pass
+    # subcommand = sys.argv[1]
+    # data_path = sys.argv[3]
+    # out_lim = int(sys.argv[4])
+    # num_msg = int(sys.argv[5])
+    # use_node_hash = sys.argv[6]=='y'
 
-    record_epochs = [int(i) for i in sys.argv[7:]]
-    max_epoch = max(record_epochs) +1
+    # record_epochs = [int(i) for i in sys.argv[7:]]
+    # max_epoch = max(record_epochs) +1
     
-    [ node_delay, 
-      node_hash, link_delay, 
-      neighbor_set, IncomingLimit, 
-      outs_neighbors, in_lims, 
-      _] = initnetwork.GenerateInitialNetwork(
-            config.network_type,
-            config.num_node, 
-            subcommand,
-            out_lim)
+    # [ node_delay, 
+      # node_hash, link_delay, 
+      # neighbor_set, IncomingLimit, 
+      # outs_neighbors, in_lims, 
+      # _] = initnetwork.GenerateInitialNetwork(
+            # config.network_type,
+            # config.num_node, 
+            # subcommand,
+            # out_lim)
 
-    if config.use_reduce_link:
-        print("\033[91m" + 'Use reduced link latency' + "\033[0m")
-        initnetwork.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
-    else:
-        print("\033[93m" + 'Not use reduced link latency'+ "\033[0m")
+    # if config.use_reduce_link:
+        # print("\033[91m" + 'Use reduced link latency' + "\033[0m")
+        # initnetwork.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
+    # else:
+        # print("\033[93m" + 'Not use reduced link latency'+ "\033[0m")
 
-    if not use_node_hash:
-        print("\033[93m" + 'Not Use asymmetric node hash'+ "\033[0m")
-        node_hash = None 
-    else:
-        print("\033[91m" + 'Use asymmetric node hash'+ "\033[0m")
+    # if not use_node_hash:
+        # print("\033[93m" + 'Not Use asymmetric node hash'+ "\033[0m")
+        # node_hash = None 
+    # else:
+        # print("\033[91m" + 'Use asymmetric node hash'+ "\033[0m")
 
-    print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
-    print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
+    # print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
+    # print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
 
-    start = time.time()
-    adv_nodes = [i for i in range(config.num_adv)]
+    # start = time.time()
+    # adv_nodes = [i for i in range(config.num_adv)]
 
-    perigee = Experiment(
-        node_hash,
-        link_delay,
-        node_delay,
-        config.num_node,
-        config.in_lim,
-        out_lim, 
-        num_msg,
-        data_path,
-        adv_nodes,
-        0, 
-        '2hop' 
-        )
-    perigee.init_graph(outs_neighbors)
-    perigee.start(max_epoch, record_epochs, num_msg)
+    # perigee = Experiment(
+        # node_hash,
+        # link_delay,
+        # node_delay,
+        # config.num_node,
+        # config.in_lim,
+        # out_lim, 
+        # num_msg,
+        # data_path,
+        # adv_nodes,
+        # 0, 
+        # '2hop' 
+        # )
+    # perigee.init_graph(outs_neighbors)
+    # perigee.start(max_epoch, record_epochs, num_msg)
 
 def complete_graph():
     print('./testbed complete_graph 1 n 0 1 2 3 4 5')
@@ -193,55 +232,55 @@ def complete_graph():
     max_epoch = max(record_epochs) +1
     num_region = out_lim
 
-    [ node_delay, 
-      node_hash, link_delay, 
-      neighbor_set, IncomingLimit, 
-      outs_neighbors, in_lims, 
-      bandwidth] = initnetwork.GenerateInitialNetwork(
-            config.network_type,
-            config.num_node, 
-            subcommand,
-            out_lim)
+    # [ node_delay, 
+      # node_hash, link_delay, 
+      # neighbor_set, IncomingLimit, 
+      # outs_neighbors, in_lims, 
+      # bandwidth] = initnetwork.GenerateInitialNetwork(
+            # config.network_type,
+            # config.num_node, 
+            # subcommand,
+            # out_lim)
 
-    if out_lim != config.num_node-1:
-        print('Error. A complete graph need correct out lim')
-        sys.exit(1)
+    # if out_lim != config.num_node-1:
+        # print('Error. A complete graph need correct out lim')
+        # sys.exit(1)
    
-    outs_neighbors = {}
-    for i in range(config.num_node):
-        connections = []
-        for j in range(config.num_node):
-            if i != j:
-                connections.append(j)
-        outs_neighbors[i] = connections
+    # outs_neighbors = {}
+    # for i in range(config.num_node):
+        # connections = []
+        # for j in range(config.num_node):
+            # if i != j:
+                # connections.append(j)
+        # outs_neighbors[i] = connections
 
-    print('setup experiment')
-    perigee = Experiment(
-            node_hash,
-            link_delay,
-            node_delay,
-            config.num_node,
-            config.in_lim,
-            out_lim, 
-            data_path,
-            [],
-            0,
-            subcommand
-            )
-    perigee.init_graph(outs_neighbors)
-    perigee.start_complete_graph(max_epoch, record_epochs)
+    # print('setup experiment')
+    # perigee = Experiment(
+            # node_hash,
+            # link_delay,
+            # node_delay,
+            # config.num_node,
+            # config.in_lim,
+            # out_lim, 
+            # data_path,
+            # [],
+            # 0,
+            # subcommand
+            # )
+    # perigee.init_graph(outs_neighbors)
+    # perigee.start_complete_graph(max_epoch, record_epochs)
 
 def test_mf():
     if len(sys.argv) < 4:
         print('test-mf N L std num_exp')
         sys.exit(1)
-    N = int(sys.argv[2])
-    L = int(sys.argv[3])
-    std = float(sys.argv[4])
-    num = int(sys.argv[5])
-    T = int(math.ceil(L * math.log(N)))
-    mf_tester = tester.MF_tester(T, N, L, num)
-    mf_tester.test_mf()
+    # N = int(sys.argv[2])
+    # L = int(sys.argv[3])
+    # std = float(sys.argv[4])
+    # num = int(sys.argv[5])
+    # T = int(math.ceil(L * math.log(N)))
+    # mf_tester = tester.MF_tester(T, N, L, num)
+    # mf_tester.test_mf()
 
 def parse_static_input():
     if len(sys.argv) < 13:
@@ -331,6 +370,8 @@ def print_help():
     print('subcommand')
     print('\trun-2hop       seed[int] output_dir[str] num_out[int] num_msg[int] use_node_hash[y/n] rounds[intList]')
     print('\trun-mf         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
+    print('\trun-mc         seed[int] output_dir[str] num_out[int] num_new[int] input_json[str] rounds[intList]')
+
     print('\trel-comp         seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] rounds[intList]')
 
     print('\tcomplete-graph seed[int] output_dir[str] num_out[int] num_region[int] use_node_hash[y/n] 1')
@@ -358,6 +399,8 @@ if __name__ == '__main__':
         run_rel_comp()
     elif subcommand == '1hop-static':
         run_1hop_static()
+    elif subcommand == 'run-mc':
+        run_mc()
     else:
         print('Error. Unknown subcommand', subcommand)
         print_help()

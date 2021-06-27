@@ -5,7 +5,6 @@ import random
 from collections import namedtuple
 from collections import defaultdict
 
-# NodeState = namedtuple('NodeState', ['received', 'recv_time', 'from_whom', 'views', 'peers', 'node_delay']) 
 class NodeState:
     def __init__(self, received, recv_time, from_whom, views, peers, node_delay):
         self.received = received
@@ -33,7 +32,8 @@ def choose_rand_fixed(outs_conns, num_node, num_choose):
 
 def print_debug(i, node, v, peer, ld, time_table):
     #if node.views[v] <  -1 * MISMATCH:
-    if time_table[i][v][-1] < -1 * MISMATCH:
+    t, direction = time_table[i][v][-1]
+    if t < -1 * MISMATCH:
         print(node.views[v] )
         print('node',i, 'from', node.from_whom, 'recv_time', node.recv_time)
         print('peer', v, 'recv_time', peer.recv_time)
@@ -66,26 +66,17 @@ def init_comm_network(nodes, u):
             network[i] = NodeState(True, 0.0, u, {}, peers, node_delay)
     return network
 
-# ld is link delau, bd is broadcasting node, nh is node_hash
-def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
+# ld is link delau, bd is broadcasting node, 
+# output time_tables is a nested dictionary
+# in the first layer, key is node id, I, value is another dict
+# in the second lauer, key is the node id who sent msg to I, value is the time
+def broadcast_msg(u, nodes, ld, time_tables, abs_time_tables):
     graph = init_comm_network(nodes, u)
-    # precondition
-    # for i, node in nodes.items():
-        # node.received = False
-        # node.recv_time = 0
-        # node.views = {}
-        # node.from_whom = None
-
-    # nodes[u].received = True
-    # nodes[u].recv_time = 0
-    # nodes[u].from_whom = u
-
+    
     broad_nodes = [u]
-    # print('broad node', broad_nodes)
     while len(broad_nodes) > 0:
         u = broad_nodes.pop(0)
         node = graph[u]
-        # node = nodes[u]
         assert(node.received) # a node must have recved to broadcast
         is_updated = False
         for v in node.peers:
@@ -127,19 +118,21 @@ def broadcast_msg(u, nodes, ld, nh, time_tables, abs_time_tables):
             if rel_time < MISMATCH:
                 rel_time = 0
 
+            direction=None
+            # if v is in both in and out. Consider it as an outgoing
+            if v in nodes[i].outs:
+                direction = 'outgoing'
+            elif v in nodes[i].ins:
+                direction = 'incoming'
+            else:
+                print("unknown direction")
+                sys.exit(1)
+
             if peer.from_whom != i:
-                # node.views[v] = peer.recv_time + node.node_delay + ld[v][i] - node.recv_time
-                time_tables[i][v].append(rel_time) #node.views[v]
-                abs_time_tables[i][v].append(peer.recv_time + node.node_delay + ld[v][i])
+                time_tables[i][v].append((rel_time, direction)) #node.views[v]
+                abs_time_tables[i][v].append((peer.recv_time + node.node_delay + ld[v][i], direction))
                 # safety check
                 print_debug(i, node, v, peer, ld, time_tables)
             else:
-                # TODO should return None
-                time_tables[i][v].append(rel_time) #node.views[v] rel_time
-                abs_time_tables[i][v].append(None)
-
-
-            # make sure the node actually transmit to me
-            # if node.views[v] >= ld[i][v] + ld[v][i] + node.node_delay + peer.node_delay:
-                # node.views[v] = unlimit
-
+                time_tables[i][v].append((None, direction)) #node.views[v] rel_time
+                abs_time_tables[i][v].append((None, direction))

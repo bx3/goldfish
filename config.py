@@ -3,16 +3,16 @@ use_reduce_link = False
 reduce_link_ratio = 0.1
 
 # network config
-input_json = 'inputs/rand_nodes_40.json'
+# input_json = 'inputs/rand_nodes_40.json'
 
 
-link_file = "inputs/datacenter4_nodes7_inter200_intra20_rand.txt"
+# link_file = "inputs/datacenter4_nodes7_inter200_intra20_rand.txt"
 # datacenter4_nodes7_inter200_intra20_rand.txt
 # datacenter4_nodes5_rand_inter200_intra20
 # datacenter4_nodes5_rand_inter200_intra20.txt
 # datacenter4_nodes6_inter200_intra20_rand.txt
 # datacenter4_nodes10_inter200_intra20_rand.txt
-num_dc_region = 4 # including single isolated node
+# num_dc_region = 4 # including single isolated node
 # datacenter4_nodes5_rand_inter200_intra20.txt
 # datacenter3_nodes5_inter200_intra10.txt
 # datacenter4_nodes10_inter200_intra5.txt
@@ -21,20 +21,18 @@ num_dc_region = 4 # including single isolated node
 # inputs/weight1.txt
 # datacenter5_nodes20_inter200_intra50.txt
 # weight1.txt datacenter5_nodes4_inter200_intra50.txt
-num_node = 40
-in_lim = num_node # 40 
+# num_node = 40
+# in_lim = num_node # 40 
 
 # load conns state from prev experiment 
-is_load_conn = False 
-conn_path = 'inputs/conn.txt'
-num_thread = 1 #min(num_node, 60)
+# is_load_conn = False 
+# conn_path = 'inputs/conn.txt'
 
 is_elimiate_lucky_W = False 
 eliminate_threshold = 0.2
 
 # neigbor selection method
-use_matrix_completion = True 
-use_2hop = False 
+select_method = 'mc' # 2hop, mc
 
 # optimizer
 window_constant = 2 
@@ -113,7 +111,7 @@ hash_file = "inputs/hash1.txt"
 data_file = "inputs/data1.txt"
 data_dir = "data"
 node_delay_mean = 0
-node_delay_std =0 
+node_delay_std = 0
 
 
 # broadcast detail
