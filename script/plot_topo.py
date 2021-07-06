@@ -12,10 +12,13 @@ infile = sys.argv[1]
 outfile = sys.argv[2]
 
 nodes = []
+summary = None
 with open(infile) as f:
     data = json.load(f)
     nodes = data['nodes']
-
+    summary = data['summary']
+print(summary)
+square_len = int(summary['square_length'])
 x_list = []
 y_list = []
 names = []
@@ -53,8 +56,8 @@ fig, ax = plt.subplots()
 ax.scatter(x_list, y_list,s=proc_delay_list)
 pub_size = []
 ax.scatter(pub_x, pub_y, s=pub_delay_list, color='red')
-ax.set_xlim(0, 250)
-ax.set_ylim(0, 250)
+ax.set_xlim(0, square_len)
+ax.set_ylim(0, square_len)
 
 for i in range(len(nodes)):
     ax.annotate(names[i], (x_list[i], y_list[i]))

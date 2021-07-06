@@ -1,25 +1,31 @@
 import sys
-
+import os
 
 class Logger:
-    def __init__(self, dirname, node_id):
+    def __init__(self, dirname, node_id, is_on):
         self.id = node_id
-        self.filename = dirname + '/' + str(node_id)
+        self.filename = os.path.join(dirname, str(node_id))
         with open(self.filename, 'w') as writer:
             writer.write('node ' + str(node_id) + '\n')
 
         self.score_filename = dirname + '/score' + str(node_id)
 
+        self.is_on = is_on
+
         with open(self.score_filename, 'w') as w:
             pass
 
     def write_miners(self, miners):
+        if not self.is_on:
+            return 
         with open(self.score_filename, 'a') as writer:
             s = [str(a) for a in miners]
             writer.write('miners:' + ' '.join(s) + '\n')
 
 
     def write_score(self, scores):
+        if not self.is_on:
+            return 
         with open(self.score_filename, 'a') as writer:
             line = []
             for m, conn, score in scores:
@@ -29,11 +35,14 @@ class Logger:
 
 
     def write_conns_mat(self, conns, ld):
-         with open(self.filename, 'a') as writer:
+        if not self.is_on:
+            return 
+
+        with open(self.filename, 'a') as writer:
             ticks = ['___'] + [str(a).rjust(5, '_') for a in range(len(conns))]
             writer.write('_'.join(ticks) + '\n')
             for i in range(len(conns)):
-                text = [str(i) +  ' |']
+                text = [str(i).ljust(2, ' ') +  ' |']
                 for j in range(len(conns)):
                     if j in conns[i] or i in conns[j]:
                         # link delay should be symmetric
@@ -48,7 +57,9 @@ class Logger:
         
 
     def write_mat(self, A, comment):
-         with open(self.filename, 'a') as writer:
+        if not self.is_on:
+            return 
+        with open(self.filename, 'a') as writer:
             if comment is not None:
                 writer.write(str(comment) + '\n')
             
@@ -60,7 +71,9 @@ class Logger:
                 writer.write(line + '\n')
 
     def write_float_mat(self, A, comment, special):
-         with open(self.filename, 'a') as writer:
+        if not self.is_on:
+            return 
+        with open(self.filename, 'a') as writer:
             if comment is not None:
                 writer.write(str(comment) + '\n')
             
@@ -79,6 +92,8 @@ class Logger:
 
 
     def write_conns(self, outs, ins, comment):
+        if not self.is_on:
+            return 
         with open(self.filename, 'a') as writer:
             out_txt = ["{:d}".format(int(a)) for a in outs]
             in_txt = ["{:d}".format(int(a)) for a in ins]
@@ -89,11 +104,15 @@ class Logger:
                 writer.write(line + '\n')
 
     def write_ucb(self, region, arm, samples):
+        if not self.is_on:
+            return 
         with open(self.filename, 'a') as writer:
             line = 'r:'+str(region)+' a:'+str(arm)+' -> '+ str(samples)
             writer.write(line + '\n')
 
     def write_list(self, data, comment):
+        if not self.is_on:
+            return 
         with open(self.filename, 'a') as writer:
             text = ["{:4d}".format(int(a)) for a in data]
             line = ' '.join(text)
@@ -103,10 +122,14 @@ class Logger:
                 writer.write(line + '\n')
 
     def write_str(self, txt):
+        if not self.is_on:
+            return 
         with open(self.filename, 'a') as writer:
             writer.write(txt + '\n')
 
     def format_mat(self, A, label_ticks, is_float):
+        if not self.is_on:
+            return 
         lines = []
         if label_ticks is not None:
             if not is_float:
@@ -129,6 +152,8 @@ class Logger:
         return lines
 
     def format_array(self, a, title):
+        if not self.is_on:
+            return 
         lines = []
         lines.append('_' + ''.join(title)+'_')
         for i in range(len(a)):
@@ -138,6 +163,8 @@ class Logger:
         return lines
 
     def format_score(self, scores):
+        if not self.is_on:
+            return 
         lines = []
         title = '_Rslt'
         lines.append('_' + ''.join(title)+'_')
@@ -149,6 +176,8 @@ class Logger:
 
 
     def format_mat_5(self, A, is_float):
+        if not self.is_on:
+            return 
         lines = []
         if not is_float:
             ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
@@ -166,6 +195,8 @@ class Logger:
 
 
     def print_mats(self, mats):
+        if not self.is_on:
+            return 
         lines = []
         num_mat = len(mats)
         num_line = len(mats[0])
@@ -176,6 +207,8 @@ class Logger:
             print(line) 
 
     def log_mats(self, mats):
+        if not self.is_on:
+            return 
         with open(self.filename, 'a') as writer:
             lines = []
             num_mat = len(mats)
@@ -187,6 +220,8 @@ class Logger:
                 writer.write(line + '\n')
 
     def print_mat(self, A, is_float):
+        if not self.is_on:
+            return 
         for i in range(A.shape[0]):
             if not is_float:
                 text = ["{:4d}".format(int(a)) for a in A[i]]
@@ -196,6 +231,8 @@ class Logger:
             print('[' + line + ' ]')
 
     def format_masked_mat(self, A, mask, label_ticks, is_float):
+        if not self.is_on:
+            return 
         lines = []
         if label_ticks is not None:
             if not is_float:
@@ -228,3 +265,46 @@ class Logger:
             lines.append('[' + line + ' ]')
         return lines
 
+    def format_double_masked_mat(self, A, mask, none_mask, label_ticks, is_float):
+        if not self.is_on:
+            return 
+        lines = []
+        if label_ticks is not None:
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in label_ticks]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in label_ticks]
+        else:
+            if not is_float:
+                ticks = [str(a).rjust(4, '_') for a in range(A.shape[1])]
+            else:
+                ticks = [str(a).rjust(5, '_') for a in range(A.shape[1])]
+
+        lines.append('_' + '_'.join(ticks)+'_ ')
+        for i in range(A.shape[0]):
+            row = A[i]
+            text = []
+            if not is_float:
+                for j in range(len(row)):
+                    if mask[i,j] == 1:
+                        text.append("{:4d}".format(int(row[j]))) 
+                    elif none_mask[i,j] == 1:
+                        text.append("{:>4}".format('+')) 
+                    elif mask[i,j] == 0:
+                        text.append("{:>4}".format('*')) 
+
+
+            else:
+                for j in range(len(row)):
+                    assert(mask[i,j] == 0 and none_mask[i,j] == 1)
+                    if mask[i,j] == 1:
+                        text.append("{:5.2f}".format(row[j])) 
+                    elif none_mask[i,j] == 1:
+                        text.append("{:>5}".format('+')) 
+                    elif mask[i,j] == 0:
+                        text.append("{:>5}".format('*')) 
+                    
+
+            line = ' '.join(text)
+            lines.append('[' + line + ' ]')
+        return lines

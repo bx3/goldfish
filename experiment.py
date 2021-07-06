@@ -32,7 +32,7 @@ from mat_complete.completer import Completer
 from mat_complete.state_selector import StateSelector
 
 class Experiment:
-    def __init__(self, link_delay, role, node_delay, num_node, in_lim, out_lim, name, sybils, window, method, loc, num_new):
+    def __init__(self, link_delay, role, node_delay, num_node, in_lim, out_lim, name, sybils, window, method, loc, num_new, use_logger, seed):
         self.ld = link_delay
         self.nd = node_delay
         self.proc_delay = node_delay
@@ -44,22 +44,20 @@ class Experiment:
         self.selectors = {} # selectors for choosing outgoing conn for next time
         self.in_lim = in_lim
         self.out_lim = out_lim
-        # self.num_region = num_region
         self.num_new = num_new
         self.outdir = name
-
-        self.timer = time.time()
 
         self.num_cand = num_node # could be less if num_node is large
 
         self.adversary = adversary.Adversary(sybils)
         self.snapshots = []
-        num_thread = num_node
+        num_thread = min(num_node, 64)
         self.pools = Pool(processes=num_thread) 
 
         self.optimizers = {}
         self.completers = {}
         self.state_selectors = {}
+        self.directions = ['outgoing'] # 'incoming', 
 
         self.sparse_tables = {}
         self.bandits = {}
@@ -67,9 +65,9 @@ class Experiment:
 
         self.init_conns = None
         self.conns_snapshot = []
-
         self.broad_nodes = [] # hist of broadcasting node
         self.method = method
+        self.timer = time.time()
         self.batch_type = 'rolling' # or rolling
         self.broad_method = 'fixed_miners' # fixed_point, rand, hash_dist
         self.topo_type = 'rand'
@@ -79,15 +77,17 @@ class Experiment:
                 self.fixed_miners.append(i)
         print('fixed miners', self.fixed_miners)
         # init dc parameter
-        self.init_conns = net_init.generate_random_outs_conns(
+        self.init_conns = net_init.generate_random_outs_conns_fix_seed(
             self.out_lim,
             self.in_lim,
             self.num_node,
-            'n'
+            'n',
+            seed
             )
 
         # log setting
         # self.printer = Printer(num_node, out_lim, 'log/WH_hist', 'log/ucb')
+        self.use_logger = use_logger 
         self.logdir = self.outdir + '/' + 'logs'
         if not os.path.exists(self.logdir):
             os.makedirs(self.logdir)
@@ -97,6 +97,29 @@ class Experiment:
         self.dist_dir = os.path.join(self.outdir, 'dists')
         if not os.path.exists(self.dist_dir):
             os.makedirs(self.dist_dir)
+
+        if method == '2hop':
+            self.num_keep = 0
+            self.num_2hop = 0
+            self.num_rand = 0
+
+    def setup_2hop(self, num_keep, num_2hop, num_rand):
+        self.num_keep = num_keep
+        self.num_2hop = num_2hop
+        self.num_rand = num_rand
+        outs_conns = self.init_conns.copy()
+        for i in range(self.num_node):
+            node_delay = self.nd[i]
+            self.nodes[i] = Communicator(
+                i,
+                node_delay,
+                self.in_lim,
+                self.out_lim,
+                outs_conns[i]
+            )
+        ins_conns = self.update_ins_conns()
+        self.init_selectors(outs_conns, ins_conns)
+        assert(num_keep + num_2hop + num_rand == self.out_lim)
 
     def save_conn_plot(self):
         conns = self.init_conns.copy()
@@ -171,7 +194,9 @@ class Experiment:
         for i, node in self.nodes.items():
             for u in node.outs:
                 delay = self.ld[i][u] + node.node_delay/2 + self.nodes[u].node_delay/2
-                assert(i != u)
+                if i == u:
+                    print('self loop', i)
+                    sys.exit(1)
                 G.add_edge(i, u, weight=delay)
         return G
 
@@ -231,7 +256,8 @@ class Experiment:
             self.completers[i] = Completer(
                     i,
                     self.window,
-                    self.loggers[i]
+                    self.loggers[i],
+                    self.directions
                     )
     def init_state_selector(self):
         for i in range(self.num_node):
@@ -260,10 +286,7 @@ class Experiment:
     def init_sparse_tables(self):
         for i in range(self.num_node):
             self.sparse_tables[i] = SparseTable(
-                i,
-                self.num_node,
-                None,
-                self.window,
+                i
             )
 
     def init_bandits(self):
@@ -278,10 +301,10 @@ class Experiment:
 
     def init_logger(self):
         for i in range(self.num_node):
-            self.loggers[i] = logger.Logger(self.logdir, i)
+            self.loggers[i] = logger.Logger(self.logdir, i, self.use_logger)
             self.loggers[i].write_miners(self.fixed_miners)
 
-    def init_graph(self):
+    def init_graph_mc(self):
         outs_conns = self.init_conns.copy()
         for i in range(self.num_node):
             node_delay = self.nd[i]
@@ -294,8 +317,6 @@ class Experiment:
             )
         ins_conns = self.update_ins_conns()
         self.init_sparse_tables()
-        # for 2 hop
-        # self.init_selectors(outs_conns, ins_conns)
         # # for mf
         # self.init_optimizers()
         # self.init_bandits()
@@ -308,9 +329,8 @@ class Experiment:
         outpath = os.path.join(self.dist_dir, name)
         self.write_cost(outpath)
         curr_time = time.time()
-        elapsed = curr_time - self.timer 
+        print(" * Recorded at the end of ", epoch, 'using', round(curr_time-self.timer,2))
         self.timer = curr_time
-        print(" * Recorded at the end of ", epoch)
 
     def write_cost(self, outpath):
         G = self.construct_graph()
@@ -413,6 +433,7 @@ class Experiment:
         for i in range(self.num_node):
             self.sparse_tables[i].append_time(abs_time_tables[i], num_msg, 'abs_time')
             self.sparse_tables[i].append_time(time_table[i], num_msg, 'rel_time')
+            self.sparse_tables[i].append_broads(broad_nodes)
 
     def decide_need_iter(self):
         for i in range(self.num_node):
@@ -496,6 +517,36 @@ class Experiment:
 
         print('start_rel_comp')
 
+    def run_2hop(self, num_msg, epoch, network_state): 
+        oracle = NetworkOracle(
+                False, 
+                self.adversary.sybils, 
+                self.selectors)
+
+        time_tables, abs_time_table, broad_nodes = self.broadcast_msgs(num_msg)
+        node_order = self.shuffle_nodes()
+        assert(self.num_keep + self.num_2hop +self.num_rand == self.out_lim)
+        outs_conns = schedule.select_nodes(
+            self.nodes, 
+            self.ld, 
+            num_msg, 
+            self.selectors,
+            oracle,
+            node_order, 
+            time_tables, 
+            self.in_lim,
+            self.out_lim, 
+            network_state,
+            self.num_keep,
+            self.num_2hop,
+            self.num_rand
+            )
+        # update outs ins
+        ins_conn = self.update_conns(outs_conns)
+        # self.check()
+        self.update_selectors(outs_conns, ins_conn)
+        return outs_conns
+
     def run_mc(self, max_epoch, record_epochs, num_msg, epoch, network_state):
         num_msg = int(math.ceil(self.window / 2))
         running_conns = self.conns_snapshot[-1].copy()
@@ -505,7 +556,7 @@ class Experiment:
         start_mc = None
         outs_conns = None
         
-        if epoch < 1:
+        if epoch < 2:
             # randomly change states
             outs_conns = net_init.generate_random_outs_conns(
                         self.out_lim, 
@@ -527,14 +578,7 @@ class Experiment:
                 logger.write_str('running conns: '+ str(running_conns[i])+ " last-conns: "+str(last_conns[i]))
                 logger.write_conns_mat(running_conns, self.ld)
 
-            # run mc algo 
-            # print('epoch', epoch, 'mc', memory_conns )
-            # for i in range(1):
-                # print('node', i, time_tables[i])
-                # print(self.sparse_tables[i].table)
-                # print()
-            # sys.exit(1)
-            node_order = [i for i in range(self.num_node)]
+            node_order = [0]# [i for i in range(self.num_node)]
             outs_conns = schedule.run_mc(
                     self.completers,
                     self.state_selectors,
@@ -543,8 +587,12 @@ class Experiment:
                     epoch,
                     node_order,
                     self.pools,
-                    self.broad_nodes
                     )
+
+            swap_conns = self.conns_snapshot[-1].copy()
+            swap_conns[0] = outs_conns[0]
+            outs_conns = swap_conns
+
             start_mc = epoch
             ins_conn = self.update_conns(outs_conns)
         return outs_conns, start_mc
@@ -559,31 +607,33 @@ class Experiment:
         outs_conns = self.init_conns.copy()
         last_conns = outs_conns.copy()
         self.conns_snapshot.append(self.init_conns.copy())
-        num_snapshot = 0
         init_write_epoch = None 
+        num_snapshot = 0
         epoch = 0
+        self.take_snapshot(epoch)
+        num_snapshot += 1
+        epoch += 1
+        self.timer = time.time()
         while True:
-            oracle = NetworkOracle(
-                config.is_dynamic, 
-                self.adversary.sybils, 
-                self.selectors)
-
             network_state.reset(self.num_node, self.in_lim)
 
             if num_snapshot == len(record_epochs):
                 break
 
             if self.method == 'mc':
-                outs_conns, start_mc = self.run_mc(
-                        max_epoch, record_epochs, num_msg, 
-                        epoch, network_state)
+                outs_conns, start_mc = self.run_mc(max_epoch,record_epochs, num_msg, epoch, network_state)
                 self.conns_snapshot.append(outs_conns)
-                if start_mc is not None and init_write_epoch is None:
-                    init_write_epoch = epoch
 
-                if (init_write_epoch is not None) and (epoch-init_write_epoch in record_epochs):
-                    print(epoch-init_write_epoch)
-                    self.take_snapshot(epoch-init_write_epoch)
+                if epoch in record_epochs:
+                    self.take_snapshot(epoch)
+                    num_snapshot += 1
+
+            elif self.method == '2hop':
+                outs_conns = self.run_2hop(num_msg, epoch, network_state)
+                self.conns_snapshot.append(outs_conns)
+
+                if epoch in record_epochs:
+                    self.take_snapshot(epoch)
                     num_snapshot += 1
 
             elif self.method == 'mf':
@@ -632,10 +682,6 @@ class Experiment:
                         )
 
                     last_conns = outs_conns.copy()
-                    # structure_name =  self.outdir + "/" + 'structure_' +  str(epoch-init_write_epoch) + '.txt'
-                    # writefiles.write_conn(structure_name, outs_conns)
-
-                    print(outs_conns)
                     ins_conn = self.update_conns(outs_conns)
 
                     self.evaluate_conns_on_fixed_miners(
@@ -692,32 +738,6 @@ class Experiment:
                     last_conns = outs_conns.copy()
                 # updates connections
                     ins_conn = self.update_conns(outs_conns)
-
-
-            elif self.method == '2hop':
-                # 1,2,3 hop selection
-                if epoch in record_epochs:
-                    self.take_snapshot(epoch)
-                time_tables, abs_time_table, broad_nodes = self.broadcast_msgs(num_msg)
-                # node_order = self.shuffle_nodes()
-                node_order = [7]
-                outs_conns = schedule.select_nodes(
-                    self.nodes, 
-                    self.ld, 
-                    num_msg, 
-                    self.nh, 
-                    self.selectors,
-                    oracle,
-                    node_order, 
-                    time_tables, 
-                    self.in_lim,
-                    self.out_lim, 
-                    network_state
-                    )
-                # update outs ins
-                ins_conn = self.update_conns(outs_conns)
-                # self.check()
-                self.update_selectors(outs_conns, ins_conn)
             else:
                 print('Error. Unknown method', self.method)
                 sys.exit(1)

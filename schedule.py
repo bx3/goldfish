@@ -290,24 +290,24 @@ def evaluate_conns_on_fixed_miners(u, logger, outs_conns, miners, nd, ld):
     return offs, next_hop_conns
     
 # nh is node hash
-def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_tables, in_lim, out_lim, network_state):
+def select_nodes(nodes, ld, num_msg, selectors, oracle, update_nodes, time_tables, in_lim, out_lim, network_state, num_keep, num_2hop, num_random):
     outs_neighbors = {} # output container
     num_invalid_compose = 0
     # direct peers
     num_rand_1hop = 0
     for i in update_nodes:
-        keep_candidates = list(nodes[i].outs)
-        if config.both_in_and_out:
-            keep_candidates += list(nodes[i].ins)       
+        keep_candidates = list(nodes[i].outs | nodes[i].ins )
 
-        composes = comb_subset.get_config(config.num_keep, 
+        composes = comb_subset.get_config(
+                num_keep, 
                 keep_candidates,
                 len(keep_candidates), 
                 network_state,
                 i)
-        num_invalid_compose += math.comb(len(keep_candidates), config.num_keep) - len(composes)
+        
+        num_invalid_compose += math.comb(len(keep_candidates), num_keep) - len(composes)
         if len(composes) == 0:
-            peers = selectors[i].select_random_peers(nodes, config.num_keep, network_state)
+            peers = selectors[i].select_random_peers(nodes, num_keep, network_state)
             num_rand_1hop += 1
             # oracle needs to know the connection
             oracle.update_1_hop_peers(i, peers)
@@ -315,10 +315,12 @@ def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_t
         else:
             for compose in composes:
                 if len(compose) != len(set(compose)):
+                    print('repeat in compose')
                     print(i)
-                    print(compose)
-                    print(list(nodes[i].outs))
-                    print(list(nodes[i].ins))
+                    print('composes', compose)
+                    print(keep_candidates)
+                    print('in', list(nodes[i].outs))
+                    print('out', list(nodes[i].ins))
                     sys.exit(1)
 
             peers = selectors[i].select_1hops(time_tables[i], composes, num_msg, network_state)
@@ -326,34 +328,36 @@ def select_nodes(nodes, ld, num_msg, nh, selectors, oracle, update_nodes, time_t
             oracle.update_1_hop_peers(i, peers)
             outs_neighbors[i] = peers
 
+
     num_added_2hop = 0
     num_added_3hop = 0
     num_added_random = 0
     tot_not_seen = 0
     random.shuffle(update_nodes)
-    print('shuffle to select 2hops')
     # two hop peers
-    for u in update_nodes:
-        peers_info = oracle.get_multi_hop_info(u)
-        peers, num_not_seen = selectors[u].select_peers(
-                config.num_2_hop, nodes, peers_info.two_hops, network_state)
-        oracle.update_2_hop_peers(u, peers)
-        outs_neighbors[u] += peers
-        num_added_2hop += len(peers)
-
-        tot_not_seen += num_not_seen
-        
-        # add 3hops
-        if out_lim - len(outs_neighbors[u]) > config.num_random:
-            num_3_hop = out_lim - len(outs_neighbors[u]) - config.num_random
+    if num_2hop > 0:
+        for u in update_nodes:
             peers_info = oracle.get_multi_hop_info(u)
-            peers, num_not_seen = selectors[u].select_peers(num_3_hop, nodes, peers_info.three_hops, network_state)
-            oracle.update_3_hop_peers(u, peers)
+            peers, num_not_seen = selectors[u].select_peers(
+                    config.num_2_hop, nodes, peers_info.two_hops, network_state)
+            oracle.update_2_hop_peers(u, peers)
             outs_neighbors[u] += peers
-            num_added_3hop += len(peers) 
+            num_added_2hop += len(peers)
+
             tot_not_seen += num_not_seen
+            
+            # add 3hops
+            if out_lim - len(outs_neighbors[u]) > num_random:
+                num_3_hop = out_lim - len(outs_neighbors[u]) - num_random
+                peers_info = oracle.get_multi_hop_info(u)
+                peers, num_not_seen = selectors[u].select_peers(num_3_hop, nodes, peers_info.three_hops, network_state)
+                oracle.update_3_hop_peers(u, peers)
+                outs_neighbors[u] += peers
+                num_added_3hop += len(peers) 
+                tot_not_seen += num_not_seen
     
-        # add random
+    # add random
+    for u in update_nodes:
         num_random = out_lim - len(outs_neighbors[u]) 
         num_added_random += num_random
 
@@ -426,7 +430,7 @@ def matrix_comp(optimizers, sparse_tables, bandits, update_nodes, num_msg, pools
 
     assert(len(results) == len(update_nodes))
     for i in range(len(update_nodes)):
-        W, H, opt, j = results[i]
+        W, H, penalties, j = results[i]
         # loggers[j].write_mat(H, '>' + str(epoch)+' H ' + str(opt))
         optimizers[j].store_WH(W, H)
 
@@ -695,42 +699,42 @@ def get_argmax_W(W_est):
         W_chosen[i,c] = 1
     return W_chosen
 
-def run_mc(completers, selectors, sparse_tables, network_state, epoch, update_nodes, pools, broads):
-    MC_get_HC(completers, sparse_tables, update_nodes, pools, broads)
-    conns = MC_select(completers, selectors, network_state, update_nodes, broads)
+def run_mc(completers, selectors, sparse_tables, network_state, epoch, update_nodes, pools):
+    MC_get_HC(completers, sparse_tables, update_nodes, pools)
+    conns = MC_select(completers, selectors, network_state, update_nodes)
     return conns
 
-def MC_get_HC(completers, sparse_tables, update_nodes, pools, broads):
+def MC_get_HC(completers, sparse_tables, update_nodes, pools):
     args = []
     for i in update_nodes:
         cpl = completers[i]
         st = sparse_tables[i]
-        arg = (i, st.table[-cpl.T:], broads[-cpl.T:])
+        arg = (i, st.table[-cpl.T:], cpl.directions)
         args.append(arg)
     results = pools.starmap(mat_comp_solver.run, args)
     assert(len(results) == len(update_nodes))
 
     for i in range(len(update_nodes)):
-        H, C, opt, j, ids = results[i]
-        completers[j].store_HC(H, C, ids)
+        H, C, penalties, j, ids = results[i]
+        completers[j].store_HC(H, C, ids, penalties)
 
     # debug
     for i in update_nodes:
         cpl = completers[i]
         st = sparse_tables[i]
-        X, M, _, _ = mat_comp_solver.construct_table(st.table[-cpl.T:], i, ['outgoing'])
-        X_full, M_full, _, ids_full = mat_comp_solver.construct_table(st.abs_table[-cpl.T:], i, ['outgoing', 'incoming'])
+        X, M, none_M, _, _ = mat_comp_solver.construct_table(st.table[-cpl.T:], i, cpl.directions)
+        X_abs, M_abs, none_M_abs, _, ids_abs = mat_comp_solver.construct_table(st.abs_table[-cpl.T:], i, ['outgoing', 'incoming'])
 
-        completers[i].store_raw_table(X, M, broads, X_full, M_full, ids_full) # for debug
+        completers[i].store_raw_table(X, M, none_M, st.broads[-cpl.T:], X_abs, M_abs, none_M_abs, ids_abs) # for debug
 
 
 
-def MC_select(completers, selectors, network_state, update_nodes, broads):
+def MC_select(completers, selectors, network_state, update_nodes):
     outs_conns = {}
     for i in update_nodes:
         selector = selectors[i]
         completer = completers[i]
-        outs = selector.run_selector(completer.H, completer.ids, broads)
+        outs = selector.run_selector(completer.H, completer.ids)
         outs_conns[i] = outs
 
     return outs_conns

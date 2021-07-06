@@ -7,16 +7,15 @@ import matplotlib.patches as mpatches
 import math
 import matplotlib.ticker as ticker
 
-if len(sys.argv) < 7:
-    print('Require epoch_dir<str> seed<int> topo_path<str> x_percent<float(0-1)>, unit<node/hash> epochs<list of int>')
+if len(sys.argv) < 6:
+    print('Require epoch_dir<str> topo_path<str> x_percent<int(0-100)>, unit<node/hash> epochs<list of int>')
     sys.exit(0)
 
 # assume epochs are sorted
-def plot_figure(percent_X_lats, ax, epochs, ylim, xlim):
+def plot_figure(percent_X_lats, ax, epochs, ylim, xlim, title):
     colormap = plt.cm.nipy_spectral
     colors = [colormap(i) for i in np.linspace(0, 0.9, len(epochs))]
     patches = []
-    
 
     for i in range(len(epochs)):
         p =  mpatches.Patch(color=colors[i], label=str(epochs[i]))
@@ -34,37 +33,9 @@ def plot_figure(percent_X_lats, ax, epochs, ylim, xlim):
     ax.grid(True)
     ax.set_ylim(0, ylim)
     ax.set_xlim(0, xlim)
-    # ax.set_title(title, fontsize='small')
+    ax.set_title(title, fontsize='small')
     ax.legend()
     return patches
-
-# def get_y_lim(dirname, method, snapshot_point, min_y, max_y, complete):
-    # num_node = 0
-    # for r in snapshot_point:
-        # filename = dirname + "/result90unhash_" + method + "V1Round" + str(r) + ".txt"
-        # with open(filename,'r') as f:
-            # line=f.readlines()
-            # a=line[0].strip().split("  ")
-            # num_node = len(a)
-            # for j in range(len(a)):
-                # n = int(float(a[j]))
-                # if max_y == None or n > max_y:
-                    # max_y = n
-                # if min_y == None or n < min_y:
-                    # min_y = n
-
-    # if complete != None:
-        # with open(complete,'r') as f:
-            # line=f.readlines()
-            # a=line[0].strip().split("  ")
-            # num_node = len(a)
-            # for j in range(len(a)):
-                # n = int(float(a[j]))
-                # if max_y == None or n > max_y:
-                    # max_y = n
-                # if min_y == None or n < min_y:
-                    # min_y = n
-    # return min_y, max_y, num_node
 
 def get_num_node(dirname, method, snapshot_point):
     num_node = None 
@@ -84,9 +55,9 @@ def get_Xcent_node(lats, x):
     sorted_lats_pair = sorted(lats.items(), key=lambda item: item[1])
     sorted_lat = [lat for i, lat in sorted_lats_pair]
     if len(sorted_lat) >= 10:
-        lat_x = sorted_lat[int(round(len(sorted_lat)*float(x))) - 1]
+        lat_x = sorted_lat[int(round(len(sorted_lat)*float(x)/100.0)) - 1]
     else:
-        lat_x = sorted_lat[int(len(sorted_lat)*float(x))]
+        lat_x = sorted_lat[int(len(sorted_lat)*float(x)/100.0)]
     return lat_x
 
 # return a list whose i-th entry represnts latency to reach 90cent nodes for node i
@@ -111,12 +82,12 @@ def parse_file(filename, x, topo, percent_unit):
 
 
 out_dir = sys.argv[1]
-seed = int(sys.argv[2])
-topo = sys.argv[3]
-x_percent = float(sys.argv[4])
-assert(x_percent >= 0 and x_percent <= 1)
-percent_unit = sys.argv[5] # node or hash
-epochs = [int(i) for i in sys.argv[6:]]
+topo = sys.argv[2]
+x_percent = int(sys.argv[3])
+assert(x_percent >= 0 and x_percent <= 100)
+percent_unit = sys.argv[4] # node or hash
+epochs = [int(i) for i in sys.argv[5:]]
+
 epoch_dir = os.path.join(out_dir, 'dists')
 epoch_lats = {}
 max_y = 0
@@ -128,22 +99,16 @@ for e in epochs:
     max_y = max(max_y, max(lats))
     num_node = len(lats)
 
-num_row = 1
-num_col = 1
+fig, axs = plt.subplots(ncols=1, nrows=1, constrained_layout=False, figsize=(9,12))
 
-fig, axs = plt.subplots(ncols=num_col, nrows=num_row, constrained_layout=False, figsize=(9,12))
-
-
-i = 0
-c = 0
-r = 0
-patches = plot_figure(epoch_lats, axs, epochs, max_y, num_node)
+title = str(os.path.basename(out_dir))
+patches = plot_figure(epoch_lats, axs, epochs, max_y, num_node, title)
 
 num_patch_per_row = 10
 interval = int(math.ceil( len(epochs) / num_patch_per_row))
 axs.legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
 
-figname = "lat"+str(int(x_percent*100))+"_"+percent_unit
+figname = title+"-lat"+str(x_percent)+"-"+percent_unit
 figpath = os.path.join(out_dir, figname)
 lastest_path = os.path.join(out_dir, "latest")
 

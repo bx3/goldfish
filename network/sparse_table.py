@@ -1,12 +1,15 @@
 import numpy as np
 
 class SparseTable:
-    def __init__(self, node_id, num_node, num_region, window):
+    def __init__(self, node_id):
         self.table = []
         self.abs_table = []
         self.id = node_id
-        self.N = num_node
-        self.L = num_region # region != num out degree
+
+        self.broads = [] # for debug
+
+    def append_broads(self, broads):
+        self.broads += broads
 
     # is_abs -> is slot data is absolute time
     def append_time(self, slots, num_msg, data_type):

@@ -60,6 +60,27 @@ def reduce_link_latency(num_node, num_low_latency, ld):
             if i != j:
                 ld[i][j] *= config.reduce_link_ratio 
 
+def generate_random_outs_conns_fix_seed(out_lim, in_lim, num_node, single_cluster, seed):
+    outs_conns = defaultdict(list) 
+
+    nodes = [i for i in range(num_node)]
+    in_counts = {i:0 for i in range(num_node)}
+    pools = nodes.copy()
+    rng = np.random.RandomState(seed)
+    for _ in range(out_lim):
+        random.shuffle(nodes)
+        for i in nodes:
+            w = rng.choice(pools)
+            while ( w in outs_conns[i] or
+                    w == i
+                    # in_counts[w] >= in_lim or
+                    # i in outs_conns[w] # allow two bidictioncal arrows
+                    ):
+                w = rng.choice(pools)
+            outs_conns[i].append(w)
+
+    return outs_conns
+
 def generate_random_outs_conns(out_lim, in_lim, num_node, single_cluster):
     outs_conns = defaultdict(list) 
 

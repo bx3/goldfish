@@ -10,7 +10,6 @@ class NodeState:
         self.received = received
         self.recv_time = recv_time
         self.from_whom = from_whom
-        self.from_whom = from_whom
         self.views = views
         self.peers = peers
         self.node_delay = node_delay
@@ -27,8 +26,6 @@ def get_broadcast_node(node_hash):
             return u
     return len(node_hash) - 1
 
-def choose_rand_fixed(outs_conns, num_node, num_choose):
-    pass
 
 def print_debug(i, node, v, peer, ld, time_table):
     #if node.views[v] <  -1 * MISMATCH:

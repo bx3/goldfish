@@ -26,14 +26,18 @@ def get_weighted_score(table, compose, num_msg, scores):
     best_times = table[compose[0]].copy()
     for peer in compose[1:]:
         peer_times = table[peer]
-        # print(peer_times)
         for i in range(num_msg):
-            if peer_times[i] is not None:
-                if (best_times[i] is None) or best_times[i] > peer_times[i]:
-                    best_times[i] = peer_times[i]
+            t, direction = peer_times[i]
+            if t is not None:
+                if (best_times[i] is None) or t < best_times[i]:
+                    best_times[i] = t
 
     sorted_best_time = sorted(best_times)
-    new_score = sorted_best_time[int(num_msg*9.0/10)-1]
+
+    if len(sorted_best_time) >= 10:
+        new_score = sorted_best_time[int(round(len(sorted_best_time)*0.9)) - 1]
+    else:
+        new_score = sorted_best_time[int(len(sorted_lat)*0.9)]
 
     if compose not in scores:
         score = new_score
@@ -43,13 +47,14 @@ def get_weighted_score(table, compose, num_msg, scores):
         return score
 
 def get_score(table, compose, num_msg):
-    best_times = table[compose[0]].copy()
+    best_times = [t for t, d in table[compose[0]]]
     for peer in compose[1:]:
         peer_times = table[peer]
         for i in range(num_msg):
-            if peer_times[i] is not None:
-                if (best_times[i] is None) or best_times[i] > peer_times[i]:
-                    best_times[i] = peer_times[i]
+            t, direction = peer_times[i]
+            if t is not None:
+                if (best_times[i] is None) or t < best_times[i]:
+                    best_times[i] = t
     
     # print('best', best_times)
     te = []
@@ -57,11 +62,10 @@ def get_score(table, compose, num_msg):
         if t is not None:
             te.append(t)
     sorted_best_time = sorted(te)
-    index = int(len(sorted_best_time)*9.0/10)-1
-    if index >= len(sorted_best_time) or index == -1:
-        print(best_times)
-        print(index, len(sorted_best_time))
-    return sorted_best_time[index]
+    if len(sorted_best_time) >= 10:
+        return sorted_best_time[int(round(len(sorted_best_time)*0.9)) - 1]
+    else:
+        return sorted_best_time[int(len(sorted_best_time)*0.9)]
 
 class Selector:
     def __init__(self, u, is_adv, curr_outs, curr_ins, pools):

@@ -17,18 +17,21 @@ from sec_hop import selector
 from experiment import Experiment
 import matplotlib.pyplot as plt
 import net_init
+from simple_model.simple_model import NetworkSim
 
 def run_mc():
     subcommand = sys.argv[1]
+    seed = int(sys.argv[2])
     data_path = sys.argv[3]
     out_lim = int(sys.argv[4])
     num_new = int(sys.argv[5])
     input_json = sys.argv[6]
+    use_logger = sys.argv[7] == 'y'
     loc, link_delay, role, proc_delay = net_init.load_network(input_json)
-    record_epochs = [int(i) for i in sys.argv[7:]]
+    record_epochs = [int(i) for i in sys.argv[8:]]
     max_epoch = max(record_epochs) +1
     num_node = len(loc)
-    num_msg =  out_lim*3  
+    num_msg =  out_lim*3 *2 # assume numIn = numOut, num include both
     window = 2*num_msg
     in_lim = num_node
 
@@ -47,12 +50,28 @@ def run_mc():
         data_path,
         adv_nodes,
         window,
-        config.select_method,
+        'mc',
         loc,
-        num_new
+        num_new,
+        use_logger,
+        seed
         )
-    perigee.init_graph()
+    perigee.init_graph_mc()
     perigee.start(max_epoch, record_epochs, num_msg)
+
+def run_simple_model():
+    T = 16
+    num_topo = 2 # in side T
+    num_out = 3
+    num_in = 1000
+    num_epoch = 10
+    topo = './topo/dc2-5node-1pub-no-proc.json'
+    star_i = 0  # node that uses mc+selector
+    mc_epochs = 3000
+    mc_lr = 1e-3
+    
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr)
+    m.run()
 
 
 def run_mf():
@@ -167,59 +186,45 @@ def run_rel_comp():
 
 
 def run_2hop():
-    pass
-    # subcommand = sys.argv[1]
-    # data_path = sys.argv[3]
-    # out_lim = int(sys.argv[4])
-    # num_msg = int(sys.argv[5])
-    # use_node_hash = sys.argv[6]=='y'
+    seed = int(sys.argv[2])
+    data_path = sys.argv[3]
+    out_lim = int(sys.argv[4])
+    num_msg = int(sys.argv[5])
+    topo =  sys.argv[6]
+    num_keep = int(sys.argv[7])
+    num_2hop = int(sys.argv[8])
+    num_rand = int(sys.argv[9])
+    use_logger = False
 
-    # record_epochs = [int(i) for i in sys.argv[7:]]
-    # max_epoch = max(record_epochs) +1
-    
-    # [ node_delay, 
-      # node_hash, link_delay, 
-      # neighbor_set, IncomingLimit, 
-      # outs_neighbors, in_lims, 
-      # _] = initnetwork.GenerateInitialNetwork(
-            # config.network_type,
-            # config.num_node, 
-            # subcommand,
-            # out_lim)
+    use_node_hash = False
+    loc, link_delay, role, proc_delay = net_init.load_network(topo)
+    record_epochs = [int(i) for i in sys.argv[10:]]
+    max_epoch = max(record_epochs) +1
+    num_node = len(loc)
+    window = 2*num_msg
+    in_lim = num_node
 
-    # if config.use_reduce_link:
-        # print("\033[91m" + 'Use reduced link latency' + "\033[0m")
-        # initnetwork.reduce_link_latency(config.num_node, int(0.2*config.num_node), link_delay)
-    # else:
-        # print("\033[93m" + 'Not use reduced link latency'+ "\033[0m")
+    start = time.time()
+    adv_nodes = [i for i in range(config.num_adv)]
 
-    # if not use_node_hash:
-        # print("\033[93m" + 'Not Use asymmetric node hash'+ "\033[0m")
-        # node_hash = None 
-    # else:
-        # print("\033[91m" + 'Use asymmetric node hash'+ "\033[0m")
-
-    # print("\033[93m" + 'Use 2hop selections'+ "\033[0m")
-    # print("\033[93m" + 'num msg '+ str(num_msg) +  "\033[0m")
-
-    # start = time.time()
-    # adv_nodes = [i for i in range(config.num_adv)]
-
-    # perigee = Experiment(
-        # node_hash,
-        # link_delay,
-        # node_delay,
-        # config.num_node,
-        # config.in_lim,
-        # out_lim, 
-        # num_msg,
-        # data_path,
-        # adv_nodes,
-        # 0, 
-        # '2hop' 
-        # )
-    # perigee.init_graph(outs_neighbors)
-    # perigee.start(max_epoch, record_epochs, num_msg)
+    perigee = Experiment(
+        link_delay,
+        role,
+        proc_delay,
+        num_node,
+        in_lim,
+        out_lim, 
+        data_path,
+        adv_nodes,
+        window,
+        '2hop',
+        loc, 
+        None,
+        use_logger, 
+        seed
+        )
+    perigee.setup_2hop(num_keep, num_2hop, num_rand)
+    perigee.start(max_epoch, record_epochs, num_msg)
 
 def complete_graph():
     print('./testbed complete_graph 1 n 0 1 2 3 4 5')
@@ -401,6 +406,8 @@ if __name__ == '__main__':
         run_1hop_static()
     elif subcommand == 'run-mc':
         run_mc()
+    elif subcommand == 'run-simple-model':
+        run_simple_model()
     else:
         print('Error. Unknown subcommand', subcommand)
         print_help()
