@@ -723,7 +723,7 @@ def MC_get_HC(completers, sparse_tables, update_nodes, pools):
         cpl = completers[i]
         st = sparse_tables[i]
         X, M, none_M, _, _ = mat_comp_solver.construct_table(st.table[-cpl.T:], i, cpl.directions)
-        X_abs, M_abs, none_M_abs, _, ids_abs = mat_comp_solver.construct_table(st.abs_table[-cpl.T:], i, ['outgoing', 'incoming'])
+        X_abs, M_abs, none_M_abs, _, ids_abs = mat_comp_solver.construct_table(st.abs_table[-cpl.T:], i, ['outgoing', 'incoming', 'bidirect'])
 
         completers[i].store_raw_table(X, M, none_M, st.broads[-cpl.T:], X_abs, M_abs, none_M_abs, ids_abs) # for debug
 

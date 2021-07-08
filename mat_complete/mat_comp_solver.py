@@ -150,8 +150,7 @@ def construct_table(slots, node_id, log_directions):
                 else:
                     j = id_map[p]
                     none_mask[i,j] = 1
-                    
-                    # X[i, j] = 9999
+                    X[i, j] = 9999
                     # mask[i, j] = 1
 
         i += 1

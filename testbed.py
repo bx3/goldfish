@@ -19,6 +19,28 @@ import matplotlib.pyplot as plt
 import net_init
 from simple_model.simple_model import NetworkSim
 
+def run_simple_model():
+    T = 36
+    num_topo = 2 # in side T
+    num_out = 6
+    num_rand = 4
+    num_in = 1000
+    num_epoch = 50
+    # topo = './topo/dc3-5node-1pub-20_0proc.json' 
+    # topo = './topo/dc3-5node-1pub-20_0proc.json' 
+    # topo = './topo/dc3-33node-1pub-20std-noproc.json'
+    topo = './topo/rand-100node-3pub-20_0proc_500len.json'
+    star_i = 0  # node that uses mc+selector
+    mc_epochs = 1000
+    mc_lr = 1e-2
+    
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr, num_rand)
+    start_t = time.time()
+    m.run()
+    print('finish', num_epoch, 'epochs in', round(time.time()-start_t,2), 'sec')
+
+
+
 def run_mc():
     subcommand = sys.argv[1]
     seed = int(sys.argv[2])
@@ -58,20 +80,6 @@ def run_mc():
         )
     perigee.init_graph_mc()
     perigee.start(max_epoch, record_epochs, num_msg)
-
-def run_simple_model():
-    T = 16
-    num_topo = 2 # in side T
-    num_out = 3
-    num_in = 1000
-    num_epoch = 10
-    topo = './topo/dc2-5node-1pub-no-proc.json'
-    star_i = 0  # node that uses mc+selector
-    mc_epochs = 3000
-    mc_lr = 1e-3
-    
-    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr)
-    m.run()
 
 
 def run_mf():

@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 import random
+import time
 Node = namedtuple('Node', ['id', 'center_id'])
+
+np.random.seed(int(time.time()))
 
 # complete bipartite connect all of them
 def connect_centers(src_c, tgt_c, lat_among_centers, centers, G):

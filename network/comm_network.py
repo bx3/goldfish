@@ -117,7 +117,9 @@ def broadcast_msg(u, nodes, ld, time_tables, abs_time_tables):
 
             direction=None
             # if v is in both in and out. Consider it as an outgoing
-            if v in nodes[i].outs:
+            if v in nodes[i].outs and v in nodes[i].ins:
+                direction = 'bidirect'
+            elif v in nodes[i].outs:
                 direction = 'outgoing'
             elif v in nodes[i].ins:
                 direction = 'incoming'
