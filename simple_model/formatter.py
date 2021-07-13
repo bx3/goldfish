@@ -147,7 +147,6 @@ def format_mat(A, topo_directions, num_topo, has_direct, is_float):
         else:
             text = ["{:5.2f}".format(a) for a in A[i]]
         if i % block_size == 0:
-            print(i, block_size, tick_i)
             lines.append('_' + '_'.join(ticks_list[tick_i]) + '__')
             tick_i += 1
 
@@ -200,7 +199,6 @@ def format_double_masked_mat(A, mask, none_mask, topo_directions, num_topo, has_
                     text.append("{:>4}".format('*')) 
         else:
             for j in range(len(row)):
-                assert(mask[i,j] == 0 and none_mask[i,j] == 1)
                 if mask[i,j] == 1:
                     text.append("{:5.2f}".format(row[j])) 
                 elif none_mask[i,j] == 1:
@@ -208,7 +206,46 @@ def format_double_masked_mat(A, mask, none_mask, topo_directions, num_topo, has_
                 elif mask[i,j] == 0:
                     text.append("{:>5}".format('*')) 
         if i % block_size == 0:
-            print(i, block_size, tick_i)
+            lines.append('_' + '_'.join(ticks_list[tick_i]) + '__')
+            tick_i += 1           
+
+        line = ' '.join(text)
+        lines.append('[' + line + ' ]')
+    return lines
+
+def format_completed_mat(A, unkn_unab_mask, unkn_plus_mask, kn_plus_mask, topo_directions, num_topo, has_direct, is_float):
+    lines = []
+    ticks_list = format_direction_ticks(topo_directions, A.shape, has_direct, is_float)
+    assert(A.shape[0] % num_topo == 0)
+    block_size = int(A.shape[0] / num_topo)
+    tick_i = 0
+
+    for i in range(A.shape[0]):
+        row = A[i]
+        text = []
+        if not is_float:
+            for j in range(len(row)):
+                if kn_plus_mask[i,j] == 1:
+                    text.append("{:>4}".format('+')) 
+                elif unkn_unab_mask[i,j] == 1:
+                    text.append("{:>4}".format('x')) 
+                elif unkn_plus_mask[i,j] == 1:
+                    text.append("{:>4}".format('&')) 
+                elif unkn_unab_mask[i,j] == 0:
+                    text.append("{:4d}".format(int(row[j]))) 
+        else:
+            for j in range(len(row)):
+                if kn_plus_mask[i,j] == 1:
+                    text.append("{:>5}".format('+')) 
+                elif unkn_unab_mask[i,j] == 1:
+                    text.append("{:>5}".format('x')) 
+                elif unkn_plus_mask[i,j] == 1:
+                    text.append("{:>5}".format('&')) 
+                elif unkn_unab_mask[i,j] == 0:
+                    text.append("{:5.2f}".format(row[j])) 
+
+
+        if i % block_size == 0:
             lines.append('_' + '_'.join(ticks_list[tick_i]) + '__')
             tick_i += 1           
 

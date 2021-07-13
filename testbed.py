@@ -2,7 +2,7 @@
 import numpy as np
 import sys
 import random 
-if len(sys.argv) >= 3:
+if len(sys.argv) >= 4:
     seed_num = int(sys.argv[2])
     np.random.seed(seed_num)
     random.seed(seed_num)
@@ -20,21 +20,28 @@ import net_init
 from simple_model.simple_model import NetworkSim
 
 def run_simple_model():
+    subcommand = sys.argv[1]
+    seed = int(sys.argv[2])
+    topo = sys.argv[3]
+    plt_name = sys.argv[4]
+
     T = 36
     num_topo = 2 # in side T
     num_out = 6
-    num_rand = 4
-    num_in = 1000
+    num_rand = 3
+    num_in = 128
     num_epoch = 50
     # topo = './topo/dc3-5node-1pub-20_0proc.json' 
     # topo = './topo/dc3-5node-1pub-20_0proc.json' 
     # topo = './topo/dc3-33node-1pub-20std-noproc.json'
-    topo = './topo/rand-100node-3pub-20_0proc_500len.json'
+    # topo = './topo/rand-100node-3pub-20_0proc-500len-7seed.json'
+    # topo = './topo/rand-100node-3pub-20_0proc-500len-35seed.json'
     star_i = 0  # node that uses mc+selector
-    mc_epochs = 1000
+    mc_epochs = 500
     mc_lr = 1e-2
+    top_n_peer = 2
     
-    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr, num_rand)
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr, num_rand, top_n_peer, plt_name)
     start_t = time.time()
     m.run()
     print('finish', num_epoch, 'epochs in', round(time.time()-start_t,2), 'sec')

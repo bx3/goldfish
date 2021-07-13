@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 
-np.random.seed(12)
+
 
 def write_adj_matrix(G, num_node, outfile):
     with open(outfile, 'w') as w:
@@ -34,12 +34,13 @@ def get_dijkstra_dist(G, num_node):
 
 
 
-if len(sys.argv) < 6:
+if len(sys.argv) < 7:
     print('num_node<int>')
     print('num_pub<int>')
     print('proc_delay_mean<float>')
     print('proc_delay_std<float>')
     print('square_len<int>')
+    print('seed<int>')
     sys.exit(1)
 
 num_node = int(sys.argv[1])
@@ -47,6 +48,8 @@ num_pub = int(sys.argv[2])
 proc_delay_mean = float(sys.argv[3])
 proc_delay_std = float(sys.argv[4])
 square_len = int(sys.argv[5])
+seed = int(sys.argv[6])
+np.random.seed(seed)
 
 node_pos = {}
 

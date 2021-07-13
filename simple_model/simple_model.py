@@ -3,6 +3,8 @@ import numpy as np
 import sys
 import config
 import random
+import math
+import pickle
 
 from collections import defaultdict
 from net_init import load_network
@@ -16,13 +18,15 @@ from mat_complete.mat_comp_solver import construct_table
 from simple_model import mc_optimizer
 from simple_model.selector import SimpleSelector
 from utils.logger import Logger
+import networkx as nx
+
 
 torch.manual_seed(12)
 np.random.seed(12)
 random.seed(12)
 
 class NetworkSim:
-    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, interested_i, mc_epochs, mc_lr, num_rand):
+    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, interested_i, mc_epochs, mc_lr, num_rand, top_n_peer, plt_name):
         self.T = T
         self.N = num_out
         self.H_ref = None
@@ -52,8 +56,10 @@ class NetworkSim:
 
         self.star_i = interested_i
         self.logger = Logger('./', self.star_i, False)
-        self.mco = mc_optimizer.McOptimizer(self.star_i, mc_epochs, mc_lr)
+        self.mco = mc_optimizer.McOptimizer(self.star_i, mc_epochs, mc_lr, top_n_peer)
         self.selector = SimpleSelector(self.star_i, self.num_node,num_out,num_in, None, num_rand, self.logger)
+        self.dist_file = plt_name
+        self.dists_hist = []
 
     def get_curr_ins(self, curr_outs):
         curr_ins = defaultdict(list)
@@ -106,7 +112,10 @@ class NetworkSim:
         slots = self.sparse_tables[i].table[-self.T:]
 
         # debug abs table
-        incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(abs_slots, i, self.table_directions)
+        # incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(abs_slots, i, self.table_directions)
+        # topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
+
+        incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(slots, i, self.table_directions)
         topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
 
         formatter.print_mats([
@@ -116,19 +125,15 @@ class NetworkSim:
         self.num_topo)
 
 
-        incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(slots, i, self.table_directions)
-        topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
-
-
         if self.has_missing_entry(M):
-            completed_table, C = self.mco.run(incomplete_table, M, 1-nM, max_time)
-
+            completed_table, C, unkn_plus_mask, unkn_unab_mask = self.mco.run(incomplete_table, M, 1-nM, max_time)
             formatter.print_mats([
                 formatter.format_double_masked_mat(incomplete_table, M, nM, topo_directions, self.num_topo, True,False),
                 formatter.format_topo_array(self.pub_hist[-self.T:], self.num_topo, 'Pub'),
                 # formatter.format_mat(completed_table, topo_directions, self.num_topo, True, False),
                 formatter.format_topo_array(C, self.num_topo, '_C_'),
-                formatter.format_mat(completed_table-C, topo_directions, self.num_topo, True, False),
+                formatter.format_completed_mat(completed_table, unkn_unab_mask, unkn_plus_mask, nM, topo_directions, self.num_topo, True,False),
+                formatter.format_mat(completed_table, topo_directions, self.num_topo, True, False),
                 ], 
                 self.num_topo)
         else:
@@ -141,8 +146,54 @@ class NetworkSim:
             )
 
         # selected_outs = self.choose_x_random(curr_out, 1, i)
-        selected_outs = self.selector.run_selector(completed_table, ids)
-        return selected_outs
+        non_value_mask = 1*((unkn_unab_mask+unkn_plus_mask+nM)>0)
+        print(non_value_mask)
+        exploits, explores = self.selector.run_selector(completed_table, ids, non_value_mask)
+        self.get_truth_distance(exploits)
+
+        return exploits + explores
+
+    def save_dists_hist(self):
+        if self.dist_file == 'None':
+            return
+        with open(self.dist_file, 'wb') as w:
+            pickle.dump(self.dists_hist, w)
+
+    def get_truth_distance(self, interested_peers):
+        # construct graph
+        G = nx.Graph()
+        for i, node in self.nodes.items():
+            if i == self.star_i:
+                for u in interested_peers:
+                    # only connect interested edge from the interested node
+                    delay = self.ld[i][u] + node.node_delay/2 + self.nodes[u].node_delay/2
+                    if i == u:
+                        print('self loop', i)
+                        sys.exit(1)
+                    G.add_edge(i, u, weight=delay)
+            else:
+                for u in node.outs:
+                    # not connecting incoming edge to the interested node
+                    if u != self.star_i:
+                        delay = self.ld[i][u] + node.node_delay/2 + self.nodes[u].node_delay/2
+                        if i == u:
+                            print('self loop', i)
+                            sys.exit(1)
+                        G.add_edge(i, u, weight=delay)
+        dists = {} # key is the target pub, value is the best peer and length
+        for m in self.pubs:
+            # the closest distance
+            length, path = nx.single_source_dijkstra(G, source=self.star_i, target=m, weight='weight')
+            assert(len(path)>=2) # at least contain source and dst
+            j = path[1]
+            topo_length = length - self.proc_delay[j]/2.0 + self.proc_delay[m]/2.0
+            line_len = (math.sqrt(
+                (self.loc[self.star_i][0]-self.loc[m][0])**2+
+                (self.loc[self.star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
+
+            dists[m] = (j, round(topo_length, 3), round(line_len, 3))
+            print('pub', m, 'by peer', j, 'off opt', round(topo_length-line_len,2), topo_length, round(line_len))
+        self.dists_hist.append(dists)
 
     def run(self):
         # setup conn network
@@ -167,6 +218,7 @@ class NetworkSim:
             self.setup_conn_graph(curr_outs)
             print('epoch', e, 'node', self.star_i, 'outs', curr_outs[self.star_i])
 
+        self.save_dists_hist()
 
             
     # def construct_data(self, std, H_ref):

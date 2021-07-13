@@ -3,13 +3,17 @@ import matplotlib.pyplot as plt
 import json
 import sys
 
-if len(sys.argv) < 2:
+if len(sys.argv) < 3:
     print('need json topology file, show pub for continent cluster')
     print('need output path')
     sys.exit(1)
 
 infile = sys.argv[1]
 outfile = sys.argv[2]
+interested = []
+if len(sys.argv) >=3:
+    interested = [int(i) for i in sys.argv[3:]]
+
 
 nodes = []
 summary = None
@@ -17,15 +21,18 @@ with open(infile) as f:
     data = json.load(f)
     nodes = data['nodes']
     summary = data['summary']
-print(summary)
 square_len = int(summary['square_length'])
 x_list = []
 y_list = []
 names = []
 pub_x = []
 pub_y = []
+int_x = []
+int_y = []
+
 proc_delay_list = []
 pub_delay_list = []
+int_delay_list = []
 for u in nodes:
     u_id = int(u["id"])
     x = float(u["x"])
@@ -37,6 +44,10 @@ for u in nodes:
         pub_x.append(x)
         pub_y.append(y)
         pub_delay_list.append(proc_delay)
+    if u_id in interested:
+        int_x.append(x)
+        int_y.append(y)
+        int_delay_list.append(proc_delay)
 
     proc_delay_list.append(proc_delay)
     x_list.append(x)
@@ -49,13 +60,14 @@ num_size = 10
 
 pub_delay_list = [int(i-min(proc_delay_list))+default_size for i in pub_delay_list]
 proc_delay_list = [int(i-min(proc_delay_list))+default_size for i in proc_delay_list]
-print(proc_delay_list)
-print(pub_delay_list)
+int_delay_list = [int(i-min(proc_delay_list))+default_size for i in int_delay_list]
 
 fig, ax = plt.subplots()
 ax.scatter(x_list, y_list,s=proc_delay_list)
 pub_size = []
 ax.scatter(pub_x, pub_y, s=pub_delay_list, color='red')
+ax.scatter(int_x, int_y, s=int_delay_list, color='green')
+
 ax.set_xlim(0, square_len)
 ax.set_ylim(0, square_len)
 
