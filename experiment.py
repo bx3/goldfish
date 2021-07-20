@@ -94,7 +94,7 @@ class Experiment:
         self.loggers = {}
         self.init_logger()
 
-        self.dist_dir = os.path.join(self.outdir, 'dists')
+        self.dist_dir = os.path.join(self.outdir, 'snapshots')
         if not os.path.exists(self.dist_dir):
             os.makedirs(self.dist_dir)
 

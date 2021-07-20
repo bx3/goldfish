@@ -6,6 +6,7 @@ import math
 from simple_model.loss_functions import ClusterLoss
 from simple_model.loss_functions import ElementLoss
 from collections import defaultdict
+from simple_model import formatter
 
 class Indicator:
     def __init__(self, i, j):
@@ -49,12 +50,43 @@ class Indicator:
                 if self.indicators[i] != 0:
                     return self.text[i]
 
+class Stopper:
+    def __init__(self, exit_loss_diff):
+        self.loss_hist = []
+        self.exit_loss_diff = exit_loss_diff
+        self.freq = 10 # unit in epoch
+        self.last_exit_signal = []
+        self.num_anxious = 3 # stop early only after anxious
+
+    def stop_early(self, curr_loss, e):
+        if len(self.loss_hist) < 1:
+            self.loss_hist.append(curr_loss)
+            return False
+
+        last_loss = self.loss_hist[-1]
+        self.loss_hist.append(curr_loss)
+        if math.sqrt((last_loss - curr_loss)**2) > self.exit_loss_diff:
+            return False
+        else:
+            self.last_exit_signal.append(e)
+            print('epoch', e, 'detect small loss', last_loss, curr_loss)
+            if len(self.last_exit_signal) >= self.num_anxious:
+                if self.last_exit_signal[-1] - self.last_exit_signal[-2] < self.freq:
+                    return True
+                else:
+                    return False
+            else:
+                return False
+
+
 class McOptimizer:
-    def __init__(self, i, epochs, lr, top_n_peer):
+    def __init__(self, i, epochs, lr, exit_loss_diff, top_n_peer, log_file):
         self.id = i
         self.epochs = epochs
         self.lr = lr 
         self.top_n_peer = top_n_peer 
+        self.stopper = Stopper(exit_loss_diff)
+        self.log_file = log_file
 
     # data in numpy
     def col_mean_init(self, X_in, M_in, nM_in):
@@ -169,9 +201,10 @@ class McOptimizer:
                 else:
                     print('Error. Unknown class', e_class)
                     sys.exit(1)
-        print('estimating easy', len(easy_estimates))
-        print('estimating ambi', len(ambi_estimates))
-        print('estimating unab', len(un_estimates))
+
+        init_easy_num = len(easy_estimates)
+        init_ambi_num = len(ambi_estimates)
+        init_unab_num = len(un_estimates)
 
         # Start construct pytorch 
         X = torch.tensor(X_in, dtype=torch.float32) 
@@ -186,6 +219,7 @@ class McOptimizer:
 
         plus_estimates = []
         plus_estimate_by_row = defaultdict(list)
+
         for i,j in ambi_estimates:
             ind = indicators[(i,j)]
             num_peer = len(ind.peering_rows)
@@ -250,22 +284,52 @@ class McOptimizer:
                 element_peer_scores[(i,j)].append((weight[c], k, select_mask.gt(0)))
 
         total_cell_num = num_known_numeric+num_known_plus+len(easy_estimates)+len(plus_estimates)+len(un_estimates)
-        print('Table of size', T, N)
-        print('total num cell', total_cell_num)
-        print('known numeric', num_known_numeric)
-        print('known plus', num_known_plus)
-        print('estimating unknown easy', len(easy_estimates))
-        print('estimating unknown plus', len(plus_estimates))
-        print('estimating unknown unab', len(un_estimates))
+
+        table_text = "\tTable summary:(T,N) T*N {} {} {}\n".format(T, N, T*N)
+        table_text += '\t\tknown numeric {}\n'.format(num_known_numeric)
+        table_text += '\t\tknown plus {}\n'.format(num_known_plus)
+        table_text += '\t\testimating unknown (ambi)+easy {} -> {}\n'.format(init_easy_num, len(easy_estimates))
+        table_text += '\t\testimating unknown (ambi)+plus {} -> {}\n'.format(init_ambi_num, len(plus_estimates))
+        table_text += '\t\testimating unknown unab        {} -> {}\n'.format(init_unab_num, len(un_estimates))
+        table_text += '\t\ttotal num cell {}\n\n'.format(total_cell_num)
+        formatter.printt(table_text, self.log_file)
+
+        # print('\tTable summary:(T,N) T*N', )
+        # print('\t\tknown numeric', num_known_numeric)
+        # print('\t\tknown plus', num_known_plus)
+        # print('\t\testimating unknown (ambi)+easy', init_easy_num, '->', len(easy_estimates))
+        # print('\t\testimating unknown (ambi)+plus', init_ambi_num, '->', len(plus_estimates))
+        # print('\t\testimating unknown unab       ', init_unab_num, '->', len(un_estimates))
+        # print('\t\ttotal num cell', total_cell_num)
         assert(total_cell_num==T*N )
 
-
         X = X*nM 
-
-        # for i in range(N):
-            # print(np.round(X_in[i]*max_time, 0))
-
         num_var = len(easy_estimates)
+
+        # completed_A, C_out = self.custom_update_loop(X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var)
+        completed_A, C_out = self.optim_loop(X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var)
+
+        C_out = C_out * max_time
+        X_out = (X.numpy() *max_time + C_out)*nM_in + (1-nM_in)*9999 
+
+        unkn_plus_mask = np.zeros((T,N))
+        unkn_unab_mask = np.zeros((T,N))
+
+        for i,j in easy_estimates:
+            a = completed_A[tensor_ind_map[(i,j)]] * max_time 
+            X_out[i,j] = a 
+
+        for i,j in plus_estimates:
+            unkn_plus_mask[i,j] = 1
+            X_out[i,j] = 7777
+
+        for i,j in un_estimates:
+            X_out[i,j] = 5555 
+            unkn_unab_mask[i,j] = 1
+
+        return X_out, C_out, unkn_plus_mask, unkn_unab_mask
+
+    def custom_update_loop(self, X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var):
         A = torch.rand(num_var, dtype=torch.float32) 
         C = torch.rand(T, requires_grad=True, dtype=torch.float32) 
         A.requires_grad_()
@@ -279,7 +343,7 @@ class McOptimizer:
             with torch.no_grad():
                 num_loss = loss.item()
                 if e % 100 ==0:
-                    print(e, 'normalized loss', num_loss, 'in', round(time.time()-s_time,2))
+                    formatter.printt('{} normalized loss {} in {}\n'.format(e, num_loss, round(time.time()-s_time,2)), self.log_file)
                     s_time = time.time()
 
                 if C.isnan().any() or A.isnan().any():
@@ -288,33 +352,63 @@ class McOptimizer:
 
                 A = relu(A - self.lr * A.grad)
                 C = relu(C - self.lr * C.grad)
+
+                # A = A - self.lr * A.grad
+                # C = C - self.lr * C.grad
                 
                 A.grad = None    
                 C.grad = None
                 A.requires_grad_()
                 C.requires_grad_()
 
-        C_out = C.detach().numpy()*max_time       
-        C_out = C_out.reshape((len(C_out), 1))
-        H_out = (X.numpy() *max_time + C_out)*nM_in + (1-nM_in)*9999 
-
-        unkn_plus_mask = np.zeros((T,N))
-        unkn_unab_mask = np.zeros((T,N))
-
+        # print(e, 'normalized loss', num_loss, 'in', )
+        formatter.printt('{} normalized loss {} in {}\n'.format(e, num_loss, round(time.time()-s_time,2)), self.log_file)
         completed_A = A.detach().numpy()
-        for i,j in easy_estimates:
-            a = completed_A[tensor_ind_map[(i,j)]] * max_time 
-            H_out[i,j] = a 
+        C_out = C.detach().numpy()       
+        C_out = C_out.reshape((len(C_out), 1))
+        return completed_A, C_out
 
-        for i,j in plus_estimates:
-            unkn_plus_mask[i,j] = 1
-            H_out[i,j] = 7777
+    def optim_loop(self, X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var):
+        A = torch.rand(num_var, dtype=torch.float32) 
+        C = torch.rand(T, requires_grad=True, dtype=torch.float32) 
+        A.requires_grad_()
 
-        for i,j in un_estimates:
-            H_out[i,j] = 5555 
-            unkn_unab_mask[i,j] = 1
+        relu = torch.nn.ReLU()
+        criterion = ElementLoss()
+        s_time = time.time()
 
-        return H_out, C_out, unkn_plus_mask, unkn_unab_mask
+        optimizer = torch.optim.Adam([A, C], lr=self.lr)
+
+        for e in range(self.epochs):
+            optimizer.zero_grad()
+            loss = criterion(X,A,C, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T)
+            loss.backward()
+            optimizer.step()
+            with torch.no_grad():
+                num_loss = loss.item()
+
+                if e % 100 ==0:
+                    formatter.printt('{} normalized loss {} in {}\n'.format(
+                        e, num_loss, round(time.time()-s_time,2)), self.log_file)
+                    # print(e, 'normalized loss', num_loss, 'in', round(time.time()-s_time,2))
+                    s_time = time.time()
+
+                if C.isnan().any() or A.isnan().any():
+                    print(e, 'Loss explodes before relu', A.grad, C.grad)
+                    sys.exit(1)
+
+                if self.stopper.stop_early(num_loss, e):
+                    break
+
+
+        formatter.printt('{} normalized loss {} in {}\n'.format(
+            e, num_loss, round(time.time()-s_time,2)), self.log_file)
+        # print(e, 'normalized loss', num_loss, 'in', round(time.time()-s_time,2))
+        completed_A = A.detach().numpy()
+        C_out = C.detach().numpy()       
+        C_out = C_out.reshape((len(C_out), 1))
+        return completed_A, C_out
+
 
     def run_cluster_loss(self, X_in, M_in, nM_in, max_time):
         # X_in = self.col_mean_init(X_in, M_in, nM_in)

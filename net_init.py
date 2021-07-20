@@ -4,6 +4,23 @@ import networkx as nx
 from collections import defaultdict
 import random
 
+def get_num_pub_node(json_file):
+    num_pub = 0
+    num_node = None
+    with open(json_file) as config:
+        data = json.load(config)
+        nodes = data['nodes']
+        summary = data['summary']
+        num_node = summary['num_node']
+        role = {}
+
+        for node in nodes:
+            if node["role"] == 'PUB':
+                num_pub += 1
+    return num_pub, num_node 
+
+
+
 def load_network(json_file):
     with open(json_file) as config:
         data = json.load(config)

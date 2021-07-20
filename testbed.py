@@ -19,29 +19,41 @@ import matplotlib.pyplot as plt
 import net_init
 from simple_model.simple_model import NetworkSim
 
+# assuming uniform, num_pub => num region, if this info is known
+# otherwise use a large number
+def calculate_T(miss_prob, num_node, num_pub, num_topo, top_n_peer):
+    T = math.ceil(math.log(miss_prob) / math.log(1.0 - 1.0/num_pub)) / top_n_peer
+    return int(T * num_topo*top_n_peer)
+    
+
 def run_simple_model():
     subcommand = sys.argv[1]
     seed = int(sys.argv[2])
     topo = sys.argv[3]
     plt_name = sys.argv[4]
+    num_epoch = int(sys.argv[5])
+    print_log = sys.argv[6]=='y'
 
-    T = 36
-    num_topo = 2 # in side T
+    num_topo = 2 
+    top_n_peer = 2
+    # extra info, extra choose appropriate T as hyperparameter
+    num_pub, num_node = net_init.get_num_pub_node(topo)
+    T = calculate_T(0.001, num_node, num_pub, num_topo, top_n_peer) 
+    print('T', T)
+
     num_out = 6
     num_rand = 3
-    num_in = 128
-    num_epoch = 50
-    # topo = './topo/dc3-5node-1pub-20_0proc.json' 
-    # topo = './topo/dc3-5node-1pub-20_0proc.json' 
-    # topo = './topo/dc3-33node-1pub-20std-noproc.json'
-    # topo = './topo/rand-100node-3pub-20_0proc-500len-7seed.json'
-    # topo = './topo/rand-100node-3pub-20_0proc-500len-35seed.json'
-    star_i = 0  # node that uses mc+selector
-    mc_epochs = 500
+    num_star = 20 
+    pools = [i for i in range(100) if i!=53 and i!=58 and i!=48] # node using adaptive algo 
+    stars = list(np.random.choice(pools, num_star, replace=False))
+    stars = [0]
+    mc_epochs = 2000
     mc_lr = 1e-2
-    top_n_peer = 2
+    mc_exit_loss_diff = 1e-3 
+    num_in = 128
+
     
-    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, star_i, mc_epochs, mc_lr, num_rand, top_n_peer, plt_name)
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log)
     start_t = time.time()
     m.run()
     print('finish', num_epoch, 'epochs in', round(time.time()-start_t,2), 'sec')

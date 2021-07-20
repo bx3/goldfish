@@ -192,6 +192,7 @@ function run_batch_simple_model {
     proc_std=$6
     square_len=$7
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
+    rm -rf output-simple/batch-graph
     mkdir output-simple/batch-graph
 
     pids=""
@@ -212,36 +213,43 @@ function run_batch_simple_model {
     # copy all results to dir
     for name in $names; do
         cp output-simple/$name/$name.png output-simple/batch-graph
+        cp topo/${name}.png output-simple/batch-graph/${name}-topo.png
     done
     echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/batch-graph ."
 }
 
 function run_simple_model {
-    if [ $# -lt 3 ]; then
-        echo "./run.sh run-simple-model seed<int> topo<str> print<y/n>"
-        echo "Exmaple. ./run.sh run-simple-model 1 topo/rand-100node-3pub-20_0proc-500len-7seed.json n"
+    if [ $# -ne 4 ]; then
+        echo "./run.sh run-simple-model seed<int> topo<str> num_epoch<int> print<y/n>"
+        echo "Exmaple. ./run.sh run-simple-model 1 topo/rand-100node-3pub-20_0proc-500len-7seed.json 30 n"
         exit 1
     fi
     seed=$1
     topo_json=$2
-    printout=$3
+    num_epoch=$3
+    printout=$4
+    record_round=$(seq 0 $(( ${num_epoch} - 1)))
 
     filename=$(basename -- "$topo_json")
     filename="${filename%.*}"
     
     rm -rf output-simple/${filename}
     mkdir -p output-simple/${filename}
+    mkdir -p output-simple/${filename}/snapshots
+
     cp ${topo_json} output-simple/${filename}
     cp testbed.py output-simple/${filename}
 
-    echo "python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename}" > "output-simple/${filename}/command.txt"
-    echo "python ./script/plot_dists.py output-simple/${filename}/${filename}" >> "output-simple/${filename}/command.txt"
-   
+    echo "python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_epoch} $printout" > "output-simple/${filename}/command.txt"
+    echo "python ./script/plot_dists.py output-simple/${filename}/${filename} ${topo_json}" >> "output-simple/${filename}/command.txt"
+    echo "python ./script/plot_single.py output-simple/${filename} ${topo_json} 90 node ${record_round}" >> "output-simple/${filename}/command.txt"
+
     echo "Started at: $(date)" 
     if [ $printout = 'y' ]; then
-        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} 
+        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_epoch} y
     else
-        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} > output-simple/${filename}/log.txt
+        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_epoch} n 
+        #> output-simple/${filename}/log.txt
     fi
 
     if [ "$?" -ne 0 ]; then
@@ -250,11 +258,16 @@ function run_simple_model {
     fi
     echo "Ended at: $(date)" 
 
-    python ./script/plot_dists.py output-simple/${filename}/${filename}
+    python ./script/plot_dists.py output-simple/${filename}/${filename} ${topo_json}
+    python ./script/plot_single.py output-simple/${filename} ${topo_json} 90 node ${record_round}
+
 
     echo "Run ->"
     echo "vim output-simple/${filename}/log.txt"
     echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-simple/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${filename}/${filename}-lat90-node.png . && open ${filename}-lat90-node.png" | tee -a "output-simple/${filename}/command.txt"
+
+
 }
 
 subcommand=$1

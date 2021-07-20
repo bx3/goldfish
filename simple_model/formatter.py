@@ -253,7 +253,8 @@ def format_completed_mat(A, unkn_unab_mask, unkn_plus_mask, kn_plus_mask, topo_d
         lines.append('[' + line + ' ]')
     return lines
 
-def print_mats(mats, num_topo):
+# print if filename is None
+def print_mats(mats, num_topo, filename):
     lines = []
     num_mat = len(mats)
     num_line = len(mats[0])
@@ -270,4 +271,23 @@ def print_mats(mats, num_topo):
 
         for mat in mats:
             line += mat[i] + '\t'
-        print(line) 
+        lines.append(line)
+
+    if filename == None:
+        for line in lines: 
+            print(line) 
+    else:
+        with open(filename, 'a') as w:
+            for line in lines:
+                w.write(line + '\n')
+
+def printt(text, filename):
+    if filename == None:
+        print(text) 
+    else:
+        with open(filename, 'a') as w:
+            w.write(text)
+
+
+
+

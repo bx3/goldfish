@@ -88,7 +88,7 @@ assert(x_percent >= 0 and x_percent <= 100)
 percent_unit = sys.argv[4] # node or hash
 epochs = [int(i) for i in sys.argv[5:]]
 
-epoch_dir = os.path.join(out_dir, 'dists')
+epoch_dir = os.path.join(out_dir, 'snapshots')
 epoch_lats = {}
 max_y = 0
 num_node = 0
