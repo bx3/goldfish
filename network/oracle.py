@@ -14,28 +14,44 @@ class NodeConn:
         self.ins = set(ins.copy())
         self.outs = set(outs.copy())
     def update_ins(self, add_ins, rm_ins):
-        assert(len(self.ins.difference(add_ins)) == 0 ) # no repeat adds
-        self.ins = self.ins.union(add_ins)
-        assert(len(self.ins.union(rm_ins)) == len(self.ins) ) # must contain
+        # assert(len(self.ins.union(rm_ins)) == len(self.ins) ) # must contain
         self.ins = self.ins.difference(rm_ins)
+        # assert(len(self.ins.difference(add_ins)) == 0 ) # no repeat adds
+        self.ins = self.ins.union(add_ins)
+        
     def update_outs(self, add_outs, rm_outs):
-        assert(len(self.outs.difference(add_outs)) == 0 ) # no repeat adds
-        self.outs = self.outs.union(add_outs)
-        assert(len(self.outs.union(rm_outs)) == len(self.outs) ) # must contain
+        # assert(len(self.outs.union(rm_outs)) == len(self.outs) ) # must contain
         self.outs = self.outs.difference(rm_outs)
+        # assert(len(self.outs.difference(add_outs)) == 0 ) # no repeat adds
+        self.outs = self.outs.union(add_outs)
+
+        
 
 class SimpleOracle:
     def __init__(self, in_lim, out_lim, num_node):
         self.in_lim = in_lim
         self.out_lim = out_lim
         self.nodes = {i: NodeConn(i, [], []) for i in range(num_node)} 
-        self.claim = {i: None for i in range(num_node)}
+        self.claim = {i: [] for i in range(num_node)}
     
     def setup(self, curr_conns):
         for i, outs in curr_conns.items():
             self.nodes[i].update_outs(outs, [])
             for j in outs:
                 self.nodes[j].update_ins([i], [])
+
+    def check(self, curr_conns):
+        curr_ins = defaultdict(list)
+        for i, outs in curr_conns.items():
+            if set(self.nodes[i].outs) != set(outs):
+                print('node', i, self.nodes[i].outs, "!=", outs)
+                sys.exit(1)
+            for j in outs:
+                curr_ins[j].append(i)
+
+        for i, ins in curr_ins.items():
+            assert(set(self.nodes[i].ins) == set(ins))
+
 
     # check if others are happy with i's connection
     # does not check i's condition
@@ -47,7 +63,7 @@ class SimpleOracle:
             if len(node_j.ins) > self.in_lim:
                 unconnectable.append(j)
         if len(unconnectable) == 0:
-            self.claim[i] = tuple(add_outs)
+            self.claim[i] += add_outs
 
         return unconnectable
 
@@ -56,21 +72,24 @@ class SimpleOracle:
     # node i has not right to compel others nodes to connect to itself (no add_ins)
     def update(self, i, rm_ins, add_outs, rm_outs):
         # only update those already claimed and approved
-        if self.claim[i] is not None:
-            claimed_add_outs = list(self.claim[i])
-            self.claim[i] = None
-            assert(claimed_add_outs == add_outs)
+        if len(self.claim[i]) != 0:
+            claimed_add_outs = self.claim[i]
+            self.claim[i] = []
+
+            if claimed_add_outs != add_outs:
+                print('claimed_add_outs', claimed_add_outs)
+                print('add_outs', add_outs)
+                sys.exit(1)
 
             self.nodes[i].update_ins([], rm_ins)
             self.nodes[i].update_outs(add_outs, rm_outs)
-            if len(node.ins) > self.in_lim:
+            if len(self.nodes[i].ins) > self.in_lim:
                 print(i, 'cannot update in', )
                 sys.exit(1)
-            if len(node.outs) > self.out_lim:
+            if len(self.nodes[i].outs) > self.out_lim:
                 print(i, 'cannot make change')
                 sys.exit(1)
 
-            self.make_change(node_i, [], rm_ins, add_outs, rm_outs)
             for j in add_outs:
                 self.nodes[j].update_ins([i], [])
             for j in rm_outs:
@@ -78,6 +97,8 @@ class SimpleOracle:
         else:
             print(i, 'update without claim')
             sys.exit(1)
+
+    
 
     # return T/F to approve the update
     # def claim(self, i, rm_ins, add_outs, rm_outs):

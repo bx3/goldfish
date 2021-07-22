@@ -31,6 +31,13 @@ torch.manual_seed(12)
 np.random.seed(12)
 random.seed(12)
 
+def delineate_out_actions(old_outs, new_outs):
+    print('old_outs, new_outs', old_outs, new_outs)
+    rm_outs =  [i for i in old_outs if i not in new_outs]
+    add_outs = [i for i in new_outs if i not in old_outs]
+
+    return rm_outs, add_outs
+
 class NetworkSim:
     def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log):
         self.T = T
@@ -82,8 +89,9 @@ class NetworkSim:
         self.init_graph_conn = os.path.join(dirpath, 'init.json')
         self.dists_hist = defaultdict(list)
         self.snapshot_dir = os.path.join(dirpath, 'snapshots')
+        self.write_adapts_node(os.path.join(dirpath, 'adapts'))
 
-        self.num_thread = min(60, len(self.stars))
+        self.num_thread = min(64, len(self.stars))
         self.worker_pools = Pool(processes=self.num_thread) 
 
     def get_curr_ins(self, curr_outs):
@@ -99,10 +107,27 @@ class NetworkSim:
             self.nodes[u].update_conns(curr_outs[u], curr_ins[u])
 
     def choose_x_random(self, outs, x, star_i):
-        keeps = np.random.choice(outs, x, replace=False)
+        keeps = list(np.random.choice(outs, x, replace=False))
         pools = [i for i in range(self.num_node) if i!=star_i and i not in outs]
-        rands = np.random.choice(pools, len(outs)-x, replace=False)
+        np.random.shuffle(pools)
+        rands = []
+        for i in pools:
+            un = self.oracle.can_i_connect(star_i, [i])
+            if len(un) == 0:
+                rands.append(i)
+            if len(outs)-x == len(rands):
+                break
+
+        if len(outs)-x != len(rands):
+            print('cannot find ', len(outs)-x, 'peers satisfying oracle')
+            sys.exit(1)
+
         assert(len(set(keeps).intersection(set(rands))) == 0)
+
+        rm_outs, add_outs = delineate_out_actions(outs, keeps+rands)
+        # print(star_i, 'outs', outs, 'keep', keeps,'rand', rands)
+        # print('rm_outs', rm_outs, 'add_outs', add_outs)
+        self.oracle.update(star_i, [], add_outs, rm_outs)
         return list(keeps) + list(rands)
 
     def broadcast_msgs(self, num_msg):
@@ -162,7 +187,11 @@ class NetworkSim:
                 self.log_files[i]
             )
 
-        exploits, explores = self.selectors[i].run_selector(completed_table, ids, unkn_plus_mask, nM, unkn_unab_mask, self.oracle)
+        exploits, explores = self.selectors[i].run_selector(completed_table, ids, unkn_plus_mask, nM, unkn_unab_mask, self.oracle, curr_out)
+
+        rm_outs, add_outs = delineate_out_actions(curr_out, exploits+explores)
+        self.oracle.update(i, [], add_outs, rm_outs)
+
         self.get_truth_distance(i, exploits, e)
         return exploits + explores
 
@@ -186,6 +215,12 @@ class NetworkSim:
                     }
                 graph_json.append(peer)
             json.dump(graph_json, w, indent=4)
+
+    def write_adapts_node(self, filename):
+        with open(filename, 'w') as w:
+            sorted_stars = sorted(self.stars)
+            for star in sorted_stars:
+                w.write(str(star) + '\n')
 
     def construct_graph(self):
         G = nx.Graph()
@@ -237,11 +272,14 @@ class NetworkSim:
         self.dists_hist[star_i].append((epoch, dists))
 
     def log_epoch(self, e, curr_outs):
+        topo_text = ""
+        for star_i in self.stars:
+            star_i_text = "\t\t {} outs {}\n".format(star_i, curr_outs[star_i])
+            topo_text += star_i_text
+
         for star_i in self.stars:
             epoch_text = "\n\n\t\t\t*** Epoch {e} stars {stars}  ***\n".format(e=e,stars=self.stars)
-            for star_i in self.stars:
-                star_i_text = "\t\t {} outs {}\n".format(star_i, curr_outs[star_i])
-                epoch_text += star_i_text
+            epoch_text += topo_text   
             epoch_text += '\n'
             formatter.printt(epoch_text, self.log_files[star_i])
 
@@ -263,20 +301,24 @@ class NetworkSim:
     def run(self):
         # setup conn network
         curr_outs = gen_rand_outs(self.num_out, self.num_in, self.num_node, 'n')
+
         for star_i, selector in self.selectors.items():
             selector.set_state(curr_outs[star_i])
         self.out_hist.append(curr_outs)
         self.setup_conn_graph(curr_outs)
-        # self.oracle.setup(curr_outs)
+
+        self.oracle.setup(curr_outs)
         self.write_init_graph()
         
         num_msg = int(self.T/self.num_topo)
 
         for e in range(self.num_epoch):
             self.take_snapshot(e)
+            self.oracle.check(curr_outs)
             ps = self.broadcast_msgs(num_msg)
             if e+1 >= self.num_topo:
                 if self.num_thread == 1:
+                    # single thread
                     for star_i in self.stars:
                         curr_outs[star_i] = self.run_mc(star_i, curr_outs[star_i], e)
                 else:
@@ -287,8 +329,8 @@ class NetworkSim:
             else:
                 for star_i in self.stars:
                     curr_outs[star_i] = self.choose_x_random(curr_outs[star_i], 1, star_i)
+
             self.setup_conn_graph(curr_outs)
-            
             self.log_epoch(e, curr_outs)
             
         self.save_dists_hist()
@@ -300,10 +342,10 @@ class NetworkSim:
             incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(slots, i, self.table_directions)
             topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
             stars_inputs[i] = [
-                    i,curr_outs,incomplete_table,M,nM,max_time,ids,ids_direct,
+                    i,curr_outs[i],incomplete_table,M,nM,max_time,ids,ids_direct,
                     topo_directions, self.log_files[i], self.mcos[i], self.selectors[i]]
 
-        outputs = run_parallel_mc_(self.worker_pools, self.stars, stars_inputs, self.num_topo, self.pub_hist, self.T)
+        outputs = run_parallel_mc_(self.worker_pools, self.stars, stars_inputs, self.num_topo, self.pub_hist, self.T, self.oracle)
         for star_i in self.stars:
             exploits = outputs[star_i][0]
             self.get_truth_distance(star_i, exploits, e)
@@ -314,10 +356,10 @@ def mc_run_(mco, incomplete_table, M, nM, max_time, star_i):
    return completed_table, C, unkn_plus_mask, unkn_unab_mask, star_i 
     
 
-def run_parallel_mc_(pools, stars, stars_input, num_topo, pub_hist, T):
+def run_parallel_mc_(pools, stars, stars_input, num_topo, pub_hist, T, oracle):
     args = []
     for star_i in stars:
-        i,curr_outs,incomplete_table,M,nM,max_time,ids,ids_direct,topo_directions,log_file,mco,selector=stars_input[star_i]
+        i,curr_out,incomplete_table,M,nM,max_time,ids,ids_direct,topo_directions,log_file,mco,selector=stars_input[star_i]
         arg = (mco, incomplete_table, M, nM, max_time, star_i)
         args.append(arg)
 
@@ -326,7 +368,7 @@ def run_parallel_mc_(pools, stars, stars_input, num_topo, pub_hist, T):
     outputs = {}
     for j in range(len(stars)):
         completed_table, C, unkn_plus_mask, unkn_unab_mask, star_i = results[j]
-        r_i,curr_outs,incomplete_table,M,nM,max_time,ids,ids_direct,topo_directions,log_file,mco,selector=stars_input[star_i]
+        r_i,curr_out,incomplete_table,M,nM,max_time,ids,ids_direct,topo_directions,log_file,mco,selector=stars_input[star_i]
 
         formatter.print_mats([
                 formatter.format_double_masked_mat(incomplete_table, M, nM, topo_directions, num_topo, True,False),
@@ -337,7 +379,10 @@ def run_parallel_mc_(pools, stars, stars_input, num_topo, pub_hist, T):
                 num_topo, 
                 log_file)
 
-        exploits, explores = selector.run_selector(completed_table, ids, unkn_plus_mask, nM, unkn_unab_mask)
+        exploits, explores = selector.run_selector(completed_table, ids, unkn_plus_mask, nM, unkn_unab_mask, oracle, curr_out)
+        
+        rm_outs, add_outs = delineate_out_actions(curr_out, exploits+explores)
+        oracle.update(star_i, [], add_outs, rm_outs)
         outputs[star_i] = [exploits, explores]
 
     return outputs

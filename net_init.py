@@ -7,6 +7,7 @@ import random
 def get_num_pub_node(json_file):
     num_pub = 0
     num_node = None
+    pubs = []
     with open(json_file) as config:
         data = json.load(config)
         nodes = data['nodes']
@@ -17,7 +18,8 @@ def get_num_pub_node(json_file):
         for node in nodes:
             if node["role"] == 'PUB':
                 num_pub += 1
-    return num_pub, num_node 
+                pubs.append(node["id"])
+    return num_pub, num_node, pubs
 
 
 
@@ -97,6 +99,22 @@ def generate_random_outs_conns_fix_seed(out_lim, in_lim, num_node, single_cluste
             outs_conns[i].append(w)
 
     return outs_conns
+
+def generate_random_outs_conns_with_oracle(num_node, oracle):
+    nodes = [i for i in range(num_node)]
+    pools = nodes.copy()
+    for i in range(out_lim):
+        random.shuffle(nodes)
+        for i in nodes:
+            w = [np.random.choice(pools)]
+            unconn = oracle.can_i_connect(i, w)
+            while len(unconn) != 0:
+                w = [np.random.choice(pools)]
+                unconn = oracle.can_i_connect(i, w)
+
+            outs_conns[i].append(w)
+    return outs_conns
+
 
 def generate_random_outs_conns(out_lim, in_lim, num_node, single_cluster):
     outs_conns = defaultdict(list) 

@@ -31,26 +31,28 @@ def run_simple_model():
     seed = int(sys.argv[2])
     topo = sys.argv[3]
     plt_name = sys.argv[4]
-    num_epoch = int(sys.argv[5])
-    print_log = sys.argv[6]=='y'
+    num_star = int(sys.argv[5])
+    num_epoch = int(sys.argv[6])
+    print_log = sys.argv[7]=='y'
 
     num_topo = 2 
     top_n_peer = 2
     # extra info, extra choose appropriate T as hyperparameter
-    num_pub, num_node = net_init.get_num_pub_node(topo)
+    num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
     T = calculate_T(0.001, num_node, num_pub, num_topo, top_n_peer) 
     print('T', T)
 
     num_out = 6
     num_rand = 3
-    num_star = 20 
-    pools = [i for i in range(100) if i!=53 and i!=58 and i!=48] # node using adaptive algo 
+    num_in = 128
+
+    pools = [i for i in range(100) if i not in pubs] # node using adaptive algo 
     stars = list(np.random.choice(pools, num_star, replace=False))
-    stars = [0]
+    # stars = [40]
+
     mc_epochs = 2000
     mc_lr = 1e-2
     mc_exit_loss_diff = 1e-3 
-    num_in = 128
 
     
     m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log)
