@@ -69,7 +69,7 @@ class Stopper:
             return False
         else:
             self.last_exit_signal.append(e)
-            print('epoch', e, 'detect small loss', last_loss, curr_loss)
+            # print('epoch', e, 'detect small loss', last_loss, curr_loss)
             if len(self.last_exit_signal) >= self.num_anxious:
                 if self.last_exit_signal[-1] - self.last_exit_signal[-2] < self.freq:
                     return True
@@ -307,7 +307,10 @@ class McOptimizer:
         num_var = len(easy_estimates)
 
         # completed_A, C_out = self.custom_update_loop(X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var)
-        completed_A, C_out = self.optim_loop(X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var)
+        if num_var != 0:
+            completed_A, C_out = self.optim_loop(X, easy_estimate_by_row, known_pos_by_row,element_peer_scores, tensor_ind_map, T, num_var)
+        else:
+            C_out = np.zeros((T, 1))
 
         C_out = C_out * max_time
         X_out = (X.numpy() *max_time + C_out)*nM_in + (1-nM_in)*9999 
@@ -397,7 +400,7 @@ class McOptimizer:
                     print(e, 'Loss explodes before relu', A.grad, C.grad)
                     sys.exit(1)
 
-                if self.stopper.stop_early(num_loss, e):
+                if self.stopper.stop_early(num_loss/float(num_var), e):
                     break
 
 

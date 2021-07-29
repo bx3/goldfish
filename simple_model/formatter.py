@@ -288,6 +288,21 @@ def printt(text, filename):
         with open(filename, 'a') as w:
             w.write(text)
 
+def print_unformated_mat(H, unkn_plus_mask, plus_mask, unkn_unab_mask):
+    for i in range(H.shape[0]):
+        row = H[i]
+        text = []
+        for j in range(len(row)):
+            if plus_mask[i,j] == 1:
+                text.append("{:>4}".format('+')) 
+            elif unkn_unab_mask[i,j] == 1:
+                text.append("{:>4}".format('x')) 
+            elif unkn_plus_mask[i,j] == 1:
+                text.append("{:>4}".format('&')) 
+            elif unkn_unab_mask[i,j] == 0:
+                text.append("{:4d}".format(int(row[j]))) 
+        line = ' '.join(text)
+        print(i, line)
 
 
 

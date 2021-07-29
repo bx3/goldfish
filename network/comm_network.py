@@ -4,6 +4,7 @@ import numpy as np
 import random 
 from collections import namedtuple
 from collections import defaultdict
+import math
 
 class NodeState:
     def __init__(self, received, recv_time, from_whom, views, peers, node_delay):
@@ -15,6 +16,14 @@ class NodeState:
         self.node_delay = node_delay
 
         # self.views_hist = defaultdict(list)
+
+def get_network_churning_nodes(churn_rate, adapt_pools):
+    if churn_rate == 1.0:
+        return adapt_pools
+
+    num_churn = int(math.ceil(churn_rate * len(adapt_pools)))
+    nodes = list(np.random.choice(adapt_pools, num_churn, replace=False))
+    return nodes
 
 def get_broadcast_node(node_hash):
     hash_sum = np.sum(node_hash)

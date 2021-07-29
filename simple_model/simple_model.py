@@ -7,11 +7,13 @@ import math
 import pickle
 import json
 import os
+import time
 
 from multiprocessing.pool import Pool
 from collections import defaultdict
 from net_init import load_network
 from net_init import generate_random_outs_conns as gen_rand_outs
+from net_init import generate_random_outs_conns_with_oracle as gen_rand_outs_with_oracle
 from network.sparse_table import SparseTable
 from network.communicator import Communicator
 from network import comm_network
@@ -27,19 +29,14 @@ import networkx as nx
 
 
 # pick your fav seed
-torch.manual_seed(12)
-np.random.seed(12)
-random.seed(12)
 
 def delineate_out_actions(old_outs, new_outs):
-    print('old_outs, new_outs', old_outs, new_outs)
     rm_outs =  [i for i in old_outs if i not in new_outs]
     add_outs = [i for i in new_outs if i not in old_outs]
-
     return rm_outs, add_outs
 
 class NetworkSim:
-    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log):
+    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate):
         self.T = T
         self.N = num_out
         self.H_ref = None
@@ -55,6 +52,8 @@ class NetworkSim:
         self.num_epoch = num_epoch
         self.num_topo = num_topo
         self.num_rand = num_rand
+
+        self.churn_rate = churn_rate
 
         assert(T%num_topo==0)
         self.table_directions = ['incoming', 'outgoing', 'bidirect']
@@ -89,6 +88,7 @@ class NetworkSim:
         self.init_graph_conn = os.path.join(dirpath, 'init.json')
         self.dists_hist = defaultdict(list)
         self.snapshot_dir = os.path.join(dirpath, 'snapshots')
+        self.snapshot_exploit_dir = os.path.join(dirpath, 'snapshots-exploit')
         self.write_adapts_node(os.path.join(dirpath, 'adapts'))
 
         self.num_thread = min(64, len(self.stars))
@@ -192,7 +192,7 @@ class NetworkSim:
         rm_outs, add_outs = delineate_out_actions(curr_out, exploits+explores)
         self.oracle.update(i, [], add_outs, rm_outs)
 
-        self.get_truth_distance(i, exploits, e)
+        # self.get_truth_distance(i, exploits, e)
         return exploits + explores
 
     def save_dists_hist(self):
@@ -233,8 +233,21 @@ class NetworkSim:
                 G.add_edge(i, u, weight=delay)
         return G
 
+    def construct_exploit_graph(self, curr_outs):
+        G = nx.Graph()
+        for i, node in self.nodes.items():
+            for k in range(self.num_out-self.num_rand):
+                u = curr_outs[i][k]
+                delay = self.ld[i][u] + node.node_delay/2 + self.nodes[u].node_delay/2
+                if i == u:
+                    print('self loop', i)
+                    sys.exit(1)
+                G.add_edge(i, u, weight=delay)
+        return G
+
     def get_truth_distance(self, star_i, interested_peers, epoch):
         # construct graph
+
         G = nx.Graph()
         for i, node in self.nodes.items():
             if i == star_i:
@@ -258,20 +271,32 @@ class NetworkSim:
         formatter.printt('\tEval peers {}\n'.format(interested_peers), self.log_files[star_i])
         for m in self.pubs:
             # the closest distance
+            start_t = time.time()
             length, path = nx.single_source_dijkstra(G, source=star_i, target=m, weight='weight')
-            assert(len(path)>=2) # at least contain source and dst
-            j = path[1]
-            topo_length = length - self.proc_delay[j]/2.0 + self.proc_delay[m]/2.0
-            line_len = (math.sqrt(
-                (self.loc[star_i][0]-self.loc[m][0])**2+
-                (self.loc[star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
+            assert(len(path)>=0) 
+            topo_length = None 
+            line_len = None
+            j = None
+            if len(path) == 1:
+                # itself
+                assert(star_i == m)
+                topo_length = 0
+                line_len = 0
+                j = star_i
+            else:
+                j = path[1]
+                topo_length = length - self.proc_delay[j]/2.0 + self.proc_delay[m]/2.0
+                line_len = (math.sqrt(
+                    (self.loc[star_i][0]-self.loc[m][0])**2+
+                    (self.loc[star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
 
             dists[m] = (j, round(topo_length, 3), round(line_len, 3))
-            dist_text = "\t\tpub {m} by peer {j} opt-diff {opt_diff} topo_len {topo_len} line_len {line_len}\n".format(m=m,j=j,opt_diff=round(topo_length-line_len,1),topo_len=round(topo_length),line_len=round(line_len))
+            runtime = round(time.time() - start_t)
+            dist_text = "\t\tpub {m} by peer {j} opt-diff {opt_diff} topo_len {topo_len} line_len {line_len} in {runtime} sec\n".format(m=m,j=j,opt_diff=round(topo_length-line_len,1),topo_len=round(topo_length),line_len=round(line_len),runtime=runtime)
             formatter.printt(dist_text, self.log_files[star_i])
         self.dists_hist[star_i].append((epoch, dists))
 
-    def log_epoch(self, e, curr_outs):
+    def log_epoch(self, e, curr_outs, churn_stars):
         topo_text = ""
         for star_i in self.stars:
             star_i_text = "\t\t {} outs {}\n".format(star_i, curr_outs[star_i])
@@ -279,6 +304,7 @@ class NetworkSim:
 
         for star_i in self.stars:
             epoch_text = "\n\n\t\t\t*** Epoch {e} stars {stars}  ***\n".format(e=e,stars=self.stars)
+            epoch_text = "\n\n\t\t\t*** Epoch {e} churn stars {stars}  ***\n".format(e=e,stars=churn_stars)
             epoch_text += topo_text   
             epoch_text += '\n'
             formatter.printt(epoch_text, self.log_files[star_i])
@@ -293,51 +319,70 @@ class NetworkSim:
                     w.write(str(cost) + ' ')
                 w.write('\n')
 
-    def take_snapshot(self, epoch):
+    def write_exploit_cost(self, outpath, curr_outs):
+        G = self.construct_exploit_graph(curr_outs)
+        with open(outpath, 'w') as w:
+            length = dict(nx.all_pairs_dijkstra_path_length(G))
+            for i in range(self.num_node):
+                for j in range(self.num_node):
+                    cost = length[i][j] - self.proc_delay[i]/2.0 + self.proc_delay[j]/2.0
+                    w.write(str(cost) + ' ')
+                w.write('\n')
+
+    def take_snapshot(self, epoch, curr_outs):
         name = "epoch"+str(epoch)+".txt"
         outpath = os.path.join(self.snapshot_dir, name)
         self.write_cost(outpath)
+        outpath_exploit = os.path.join(self.snapshot_exploit_dir, name)
+        self.write_exploit_cost(outpath_exploit, curr_outs)
 
     def run(self):
         # setup conn network
-        curr_outs = gen_rand_outs(self.num_out, self.num_in, self.num_node, 'n')
+        # curr_outs = gen_rand_outs(self.num_out, self.num_in, self.num_node, 'n')
+        curr_outs = gen_rand_outs_with_oracle(self.num_out, self.num_node, self.oracle)
+        self.oracle.check(curr_outs)
 
         for star_i, selector in self.selectors.items():
             selector.set_state(curr_outs[star_i])
         self.out_hist.append(curr_outs)
         self.setup_conn_graph(curr_outs)
 
-        self.oracle.setup(curr_outs)
+        # self.oracle.setup(curr_outs)
         self.write_init_graph()
         
         num_msg = int(self.T/self.num_topo)
+        churn_stars = []
 
         for e in range(self.num_epoch):
-            self.take_snapshot(e)
+            self.take_snapshot(e, curr_outs)
             self.oracle.check(curr_outs)
             ps = self.broadcast_msgs(num_msg)
             if e+1 >= self.num_topo:
+                churn_stars = comm_network.get_network_churning_nodes(self.churn_rate, self.stars)
                 if self.num_thread == 1:
                     # single thread
-                    for star_i in self.stars:
+                    for star_i in churn_stars:
                         curr_outs[star_i] = self.run_mc(star_i, curr_outs[star_i], e)
                 else:
                     # parallel threads
-                    outputs = self.run_parallel_mc(curr_outs, e)
+                    outputs = self.run_parallel_mc(curr_outs, e, churn_stars)
                     for star_i, exploit_explore in outputs.items():
                         curr_outs[star_i] = exploit_explore[0] + exploit_explore[1]
             else:
                 for star_i in self.stars:
                     curr_outs[star_i] = self.choose_x_random(curr_outs[star_i], 1, star_i)
 
+            for star_i in self.stars:
+                self.get_truth_distance(star_i, curr_outs[star_i][:self.num_out-self.num_rand], e)
+
             self.setup_conn_graph(curr_outs)
-            self.log_epoch(e, curr_outs)
+            self.log_epoch(e, curr_outs, churn_stars)
             
         self.save_dists_hist()
 
-    def run_parallel_mc(self, curr_outs, e):
+    def run_parallel_mc(self, curr_outs, e, churn_stars):
         stars_inputs = {}
-        for i in self.stars:
+        for i in churn_stars:
             slots = self.sparse_tables[i].table[-self.T:]
             incomplete_table,M,nM,max_time,ids,ids_direct=construct_table(slots, i, self.table_directions)
             topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
@@ -345,10 +390,11 @@ class NetworkSim:
                     i,curr_outs[i],incomplete_table,M,nM,max_time,ids,ids_direct,
                     topo_directions, self.log_files[i], self.mcos[i], self.selectors[i]]
 
-        outputs = run_parallel_mc_(self.worker_pools, self.stars, stars_inputs, self.num_topo, self.pub_hist, self.T, self.oracle)
-        for star_i in self.stars:
+        stars = np.random.permutation(churn_stars)
+        outputs = run_parallel_mc_(self.worker_pools, stars, stars_inputs, self.num_topo, self.pub_hist, self.T, self.oracle)
+        for star_i in churn_stars:
             exploits = outputs[star_i][0]
-            self.get_truth_distance(star_i, exploits, e)
+            # self.get_truth_distance(star_i, exploits, e)
         return outputs
 
 def mc_run_(mco, incomplete_table, M, nM, max_time, star_i):
@@ -483,3 +529,11 @@ def run_parallel_mc_(pools, stars, stars_input, num_topo, pub_hist, T, oracle):
         # ])
     # print(np.linalg.norm(H.numpy()-X_answer))
 
+# for i in range(self.num_node):
+            # print(i, curr_outs[i])
+        # curr_ins = self.get_curr_ins(curr_outs)
+        # max_in = 0
+        # for i in range(self.num_node):
+            # max_in = max(max_in, len(curr_ins[i]))
+            # print(i, curr_ins[i])
+        # print(max_in)

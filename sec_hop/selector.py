@@ -3,8 +3,11 @@ import numpy as np
 import random
 import config
 from network.oracle import PeersInfo
+from simple_model.simple_model import delineate_out_actions
 from collections import namedtuple
 from collections import defaultdict 
+import itertools
+
 # for multithread
 # from threading import Thread
 # import concurrent.futures
@@ -67,28 +70,137 @@ def get_score(table, compose, num_msg):
     else:
         return sorted_best_time[int(len(sorted_best_time)*0.9)]
 
+
 class Selector:
-    def __init__(self, u, is_adv, curr_outs, curr_ins, pools):
+    def __init__(self, u, num_keep, num_rand, num_msg, num_node):
         self.id = u
-        self.is_adv = is_adv
+        self.num_node = num_node
+        self.num_keep = num_keep
+        self.num_rand = num_rand
+        self.num_msg = num_msg
 
-        self.conn = set()
-        self.desc_conn = set()
+        # self.conn = set()
+        # self.desc_conn = set()
 
-        self.worst_compose = None
-        self.best_compose = None # subset of 1 hop nodes
+        # self.worst_compose = None
+        # self.best_compose = None # subset of 1 hop nodes
 
         # persistant
-        self.scores = {}
-        self.seen_nodes = set() # all peers
-        self.curr_ins = curr_ins.copy()
-        self.curr_outs = curr_outs.copy()
+        # self.scores = {}
+        # self.seen_nodes = set() # all peers
+        # self.curr_ins = curr_ins.copy()
+        # self.curr_outs = curr_outs.copy()
         # self.seen_nodes = self.seen_nodes.union(curr_ins)
-        self.seen_nodes = self.seen_nodes.union(curr_outs)
+        # self.seen_nodes = self.seen_nodes.union(curr_outs)
 
-        self.seen_compose = set()
+        # self.seen_compose = set()
 
-        self.pools = pools
+        # self.pools = pools
+
+    def select_applicable_subset(i, oracle, sorted_subset, curr_out, log):
+        selected = [] 
+        for subset in sorted_subset:
+            comb = subset[0]
+            # only ask oracle for nodes not connected outgoing
+            nodes = [j for j in comb if j not in curr_out]
+            un = oracle.can_i_connect(i, nodes)
+            if len(un) == 0:
+                selected = list(comb)
+                break
+
+        return selected
+
+    def find_x_rand_to_conn(self, pools, num, oracle):
+        conns = []
+        for i in pools:
+            if len(oracle.can_i_connect(self.id, [i])) == 0:
+                conns.append(i)
+            if num == len(conns):
+                break
+        if num != len(conns):
+            print('cannot find ', num, 'peers satisfying oracle')
+            sys.exit(1)
+        return conns
+
+    def get_score(self, table, compose, num_msg):
+        best_times = []
+        compose_slots = defaultdict(list)
+        for i in range(num_msg):
+            slot = table[i]
+            slot_best = None
+            for p, t, direction in slot:
+                if p in compose:
+                    compose_slots[p].append(t)
+                    if t is not None and (slot_best is None or t < slot_best) :
+                        slot_best = t
+            if slot_best is not None:
+                best_times.append(slot_best)
+
+        sorted_best = sorted(best_times)
+        num_sorted = len(sorted_best)
+        lat_x = None
+
+        # if sorted(compose) == [15,69,75]:
+            # print('15,69,75', len(sorted_best), num_msg, sorted_best)
+            # print(sorted_best[int(round(num_sorted*float(90)/100.0)) - 1])
+        # if sorted(compose) == [3,15,69]:
+            # print('3,15,69', len(sorted_best), num_msg, sorted_best)
+            # print(sorted_best[int(round(num_sorted*float(90)/100.0)) - 1])
+
+
+        if len(sorted_best) == 0:
+            # print('no sort best')
+            # print(compose)
+            # print(num_msg)
+            # print(compose_slots)
+            return None
+
+        if num_sorted >= 10:
+            lat_x = sorted_best[int(round(num_sorted*float(90)/100.0)) - 1]
+        else:
+            lat_x = sorted_best[int(num_sorted*float(90)/100.0)]
+        return lat_x
+
+
+    def run(self, oracle, curr_out, nodes, table):
+        candidates = list(nodes)
+
+        compose_score = {}
+
+        for compose in itertools.combinations(candidates, self.num_keep):
+            lat_x = self.get_score(table, compose, self.num_msg)
+            if lat_x is not None:
+                compose_score[compose] = lat_x
+
+        selected = None
+        if len(compose) == 0:
+            selected = self.select_random_peers_with_oracle(candidates, self.num_keep, oracle)
+            # print('Exploit(no subset)'.format(selected))
+        else:
+            compose_score_list = [(c, s) for c, s in compose_score.items()]
+            sorted_composes = sorted(compose_score_list, key=lambda tup: tup[1])
+            for compose, s in sorted_composes:
+                nodes = [j for j in compose if j not in curr_out]
+                if len(oracle.can_i_connect(self.id, nodes)) == 0:
+                    selected = list(compose)
+
+                    prev_select = curr_out[:self.num_keep]
+                    prev_score = None
+                    if tuple(prev_select) in compose_score:
+                        prev_score = compose_score[tuple(prev_select)]
+
+                    # print('Exploit( subset  ) {}, score {}. Prev {} , score {}'.format(selected, s, prev_select, prev_score))
+                    break
+            if selected is None:
+                selected = self.select_random_peers_with_oracle(candidates, self.num_keep, oracle)
+                # print('Exploit(no oracle) {}'.format(selected))
+
+        rands = self.select_random_peers_with_oracle(candidates+selected, self.num_rand, oracle)
+        # print('Explore          '.format(rands))
+
+        rm_outs, add_outs = delineate_out_actions(curr_out, selected+rands)
+        oracle.update(self.id, [], add_outs, rm_outs)
+        return selected, rands 
 
 
     def update(self, out_peers, in_peers):
@@ -132,11 +244,10 @@ class Selector:
         best = None 
         worst = None
         for compose in composes:
-            score = None 
-            if config.use_score_decay:
-                score = get_weighted_score(table, compose, num_msg, self.scores)
-            else:
-                score = get_score(table, compose, num_msg)
+            # if config.use_score_decay:
+                # score = get_weighted_score(table, compose, num_msg, self.scores)
+            # else:
+            score = get_score(table, compose, num_msg)
              
             if best == None or score < best:
                 best = score 
@@ -366,6 +477,15 @@ class Selector:
             network_state.add_in_connection(self.id, w)
 
         assert(len(selected) == num_required)
+        return list(selected)
+
+    def select_random_peers_with_oracle(self, candidates, num, oracle):
+        pools = [i for i in range(self.num_node) if i not in candidates]
+        pools.remove(self.id)
+        np.random.shuffle(pools)
+        selected = self.find_x_rand_to_conn(pools, num, oracle)
+        
+        assert(len(selected) == num)
         return list(selected)
 
 

@@ -2,10 +2,12 @@
 import numpy as np
 import sys
 import random 
+import torch
 if len(sys.argv) >= 4:
-    seed_num = int(sys.argv[2])
+    seed_num = int(sys.argv[2]) + 3
     np.random.seed(seed_num)
     random.seed(seed_num)
+    torch.manual_seed(seed_num)
     print("\033[93m" + 'random seed is set to '+ str(seed_num) + "\033[0m")
 
 import time
@@ -18,6 +20,7 @@ from experiment import Experiment
 import matplotlib.pyplot as plt
 import net_init
 from simple_model.simple_model import NetworkSim
+from sec_hop.experiment import Experiment as SecHopExperiment
 
 # assuming uniform, num_pub => num region, if this info is known
 # otherwise use a large number
@@ -40,22 +43,28 @@ def run_simple_model():
     # extra info, extra choose appropriate T as hyperparameter
     num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
     T = calculate_T(0.001, num_node, num_pub, num_topo, top_n_peer) 
+    T = min(T, 80)
     print('T', T)
 
     num_out = 6
-    num_rand = 3
-    num_in = 128
+    num_rand = 2
+    num_in = 12
+    churn_rate = 0.25
 
-    pools = [i for i in range(100) if i not in pubs] # node using adaptive algo 
+    print('pubs', pubs)
+
+    # pools = [i for i in range(num_node) if i not in pubs] # node using adaptive algo 
+    pools = [i for i in range(num_node)]
     stars = list(np.random.choice(pools, num_star, replace=False))
-    # stars = [40]
+    print('stars', stars)
+
 
     mc_epochs = 2000
     mc_lr = 1e-2
-    mc_exit_loss_diff = 1e-3 
+    mc_exit_loss_diff = 1e-3
 
     
-    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log)
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate)
     start_t = time.time()
     m.run()
     print('finish', num_epoch, 'epochs in', round(time.time()-start_t,2), 'sec')
@@ -216,44 +225,44 @@ def run_rel_comp():
 
 def run_2hop():
     seed = int(sys.argv[2])
-    data_path = sys.argv[3]
-    out_lim = int(sys.argv[4])
-    num_msg = int(sys.argv[5])
-    topo =  sys.argv[6]
-    num_keep = int(sys.argv[7])
-    num_2hop = int(sys.argv[8])
-    num_rand = int(sys.argv[9])
-    use_logger = False
 
-    use_node_hash = False
-    loc, link_delay, role, proc_delay = net_init.load_network(topo)
-    record_epochs = [int(i) for i in sys.argv[10:]]
-    max_epoch = max(record_epochs) +1
-    num_node = len(loc)
-    window = 2*num_msg
-    in_lim = num_node
+    topo =  sys.argv[3]
+    num_epoch = int(sys.argv[4])
+    num_adapt = int(sys.argv[5])
+    data_path = sys.argv[6]
 
-    start = time.time()
-    adv_nodes = [i for i in range(config.num_adv)]
+    num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
 
-    perigee = Experiment(
-        link_delay,
-        role,
-        proc_delay,
-        num_node,
+    out_lim = 6
+    in_lim = 12 
+    num_2hop = 0
+    num_rand = 2
+    num_msg = 40
+
+    num_keep = out_lim - num_rand - num_2hop
+
+    print('pubs', pubs)
+    # pools = [i for i in range(num_node) if i not in pubs] # node using adaptive algo 
+    pools = [i for i in range(num_node)] # node using adaptive algo 
+
+    stars = list(np.random.choice(pools, num_adapt, replace=False))
+    print('stars', stars)
+    churn_rate = 0.25
+
+    sec_hop_model = SecHopExperiment(
+        topo,
         in_lim,
         out_lim, 
         data_path,
-        adv_nodes,
-        window,
-        '2hop',
-        loc, 
-        None,
-        use_logger, 
-        seed
+        num_keep, 
+        num_2hop, 
+        num_rand,
+        num_epoch,
+        stars,
+        num_msg,
+        churn_rate
         )
-    perigee.setup_2hop(num_keep, num_2hop, num_rand)
-    perigee.start(max_epoch, record_epochs, num_msg)
+    sec_hop_model.run()
 
 def complete_graph():
     print('./testbed complete_graph 1 n 0 1 2 3 4 5')

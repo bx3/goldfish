@@ -56,7 +56,7 @@ def plot_topology(infile, ax, interested):
     ax.scatter(x_list, y_list,s=proc_delay_list)
     pub_size = []
     ax.scatter(pub_x, pub_y, s=pub_delay_list, color='red')
-    ax.scatter(int_x, int_y, s=int_delay_list, color='green')
+    ax.scatter(int_x, int_y, s=int_delay_list, color='orange')
 
     ax.set_xlim(0, square_len)
     ax.set_ylim(0, square_len)
