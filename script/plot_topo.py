@@ -63,6 +63,30 @@ def plot_topology(infile, ax, interested):
 
     for i in range(len(nodes)):
         ax.annotate(names[i], (x_list[i], y_list[i]))
+    return x_list, y_list 
+
+
+def plot_graph(topo_json, graph_json, ax, stars, pubs):
+    x_list, y_list = plot_topology(topo_json, ax, stars)
+    graph = None
+    with open(graph_json) as f:
+        data = json.load(f)
+        graph = data
+        
+    for node in graph:
+        i = node['node']
+        line_x = [x_list[i]]
+        line_y = [y_list[i]]
+        for o in node['outs']:
+            if i in stars:
+                ax.plot(line_x+[x_list[o]], line_y+[y_list[o]], 'b-')
+            elif i in pubs:
+                ax.plot(line_x+[x_list[o]], line_y+[y_list[o]], 'r-')
+            # else:
+                # ax.plot(line_x+[x_list[o]], line_y+[y_list[o]], 'k-')
+
+
+
 
 def __init__():
     if len(sys.argv) < 3:

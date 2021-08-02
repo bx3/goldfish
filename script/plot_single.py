@@ -17,17 +17,18 @@ from plot_utility import parse_adapt
 from plot_utility import parse_file
 
 
-if len(sys.argv) < 6:
-    print('Require epoch_dir<str> topo_path<str> x_percent<int(0-100)/avg> unit<node/pub/hash> epochs<list of int>')
+if len(sys.argv) < 7:
+    print('Require epoch_dir<str> topo_path<str> x_percent<int(0-100)/avg> unit<node/pub/hash> snapshots_dir<snapshots/snapshots-exploit> epochs<list of int>')
     sys.exit(0)
 
 out_dir = sys.argv[1]
 topo = sys.argv[2]
 x_percent = sys.argv[3]
 percent_unit = sys.argv[4] # node or hash
-epochs = [int(i) for i in sys.argv[5:]]
+snapshots_dir = sys.argv[5]
+epochs = [int(i) for i in sys.argv[6:]]
 
-epoch_dir = os.path.join(out_dir, 'snapshots-exploit')
+epoch_dir = os.path.join(out_dir, snapshots_dir)
 adapts = parse_adapt(os.path.join(out_dir, 'adapts'))
 epoch_lats = {}
 max_y = 0
@@ -46,15 +47,15 @@ fig, axs = plt.subplots(ncols=2, nrows=1, constrained_layout=False, figsize=(20,
 exp_name = str(os.path.basename(out_dir))
 context_name = str(os.path.dirname(out_dir))
 
-title = str(x_percent)+' '+percent_unit+' '+context_name+' '+str(exp_name)
+title = snapshots_dir + ', ' + str(x_percent)+', '+percent_unit+', '+context_name+', '+str(exp_name)
 
-patches = plot_figure(epoch_lats, axs[0], epochs, min_y, max_y, num_node-1, title, adapts)
+patches, _ = plot_figure(epoch_lats, axs[0], epochs, min_y, max_y, num_node-1, title, adapts)
 
 num_patch_per_row = 10
 interval = int(math.ceil( len(epochs) / num_patch_per_row))
 axs[0].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
 
-patches = plot_stars_figure(epoch_lats, axs[1], epochs, min_y, max_y, len(adapts)-1, title, adapts)
+patches, _ = plot_stars_figure(epoch_lats, axs[1], epochs, min_y, max_y, len(adapts)-1, title, adapts)
 axs[1].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
 
 

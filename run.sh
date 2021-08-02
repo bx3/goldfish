@@ -1,9 +1,10 @@
 #!/bin/bash
 trap kill_procs INT
 
-default_num_record=15
+default_num_record=7
 default_unit='pub'
 default_cent=90
+default_snapshot_dir='snapshots-exploit'
 
 function kill_procs() {
     echo "STOP"
@@ -83,15 +84,17 @@ function run_command {
 
 
 function run_2hop {
-    if [ $# -ne 4 ]; then
-        echo "./run.sh run-2hop seed<int> topo<str> num_epoch<int> num_adapt<int>"
-        echo "Example. ./run.sh run-2hop 12 topo/rand-100node-3pub-20_0proc-500len-12seed.json 32 1"
+    if [ $# -ne 6 ]; then
+        echo "./run.sh run-2hop seed<int> topo<str> num_epoch<int> num_adapt<int> churn_rate<float> context<str> "
+        echo "Example. ./run.sh run-2hop 12 topo/rand-100node-3pub-20_0proc-500len-12seed.json 32 1 0.25 default "
         exit 1
     fi
     seed=$1
     topo_json=$2
     num_epoch=$3
     num_adapt=$4
+    churn_rate=$5
+    context=${6%/}
 
     end_epoch=$(( ${num_epoch} - 1 ))
     plot_interval=$(( ${end_epoch} / $default_num_record ))
@@ -107,34 +110,33 @@ function run_2hop {
     filename="${filename%.*}"
     filename="$filename-${num_adapt}stars"
 
-    rm -rf output-2hop/${filename}
-    mkdir -p output-2hop/${filename}
-    mkdir -p output-2hop/${filename}/snapshots
-    mkdir -p output-2hop/${filename}/snapshots-exploit
+    rm -rf output-2hop/$context/${filename}
+    mkdir -p output-2hop/$context/${filename}
+    mkdir -p output-2hop/$context/${filename}/snapshots
+    mkdir -p output-2hop/$context/${filename}/snapshots-exploit
 
 
-    cp ${topo_json} output-2hop/${filename}
-    cp testbed.py output-2hop/${filename}
+    cp ${topo_json} output-2hop/$context/${filename}
+    cp testbed.py output-2hop/$context/${filename}
 
-    #echo $(date '+%Y-%m-%d %H:%M:%S')  > $dirpath/experiment.log
 
-    echo "python ./testbed.py run-2hop $seed ${topo_json} ${num_epoch} ${num_adapt} output-2hop/${filename}/${filename}" > "output-2hop/${filename}/command.txt"
-    echo "python ./script/plot_single.py output-2hop/${filename} ${topo_json} ${default_cent} ${default_unit} " ${record_round} >> "output-2hop/${filename}/command.txt"
+    echo "python ./testbed.py run-2hop $seed ${topo_json} ${num_epoch} ${num_adapt} ${churn_rate} output-2hop/$context/${filename}/${filename}" > "output-2hop/$context/${filename}/command.txt"
+    echo "python ./script/plot_single.py output-2hop/$context/${filename} ${topo_json} ${default_cent} ${default_unit} ${default_snapshot_dir} " ${record_round} >> "output-2hop/$context/${filename}/command.txt"
 
-    python ./testbed.py run-2hop $seed ${topo_json} ${num_epoch} ${num_adapt} output-2hop/${filename}/${filename}
+    python ./testbed.py run-2hop $seed ${topo_json} ${num_epoch} ${num_adapt} ${churn_rate} output-2hop/$context/${filename}/${filename}
 
     if [ "$?" -ne 0 ]; then
         echo "simulation bug. Exit"
         exit 1
     fi
 
-    python ./script/plot_dists.py output-2hop/${filename}/${filename} ${topo_json} ${record_round}
-    python ./script/plot_single.py output-2hop/${filename} ${topo_json} ${default_cent} ${default_unit} ${record_round}
+    python ./script/plot_dists.py output-2hop/$context/${filename}/${filename} ${topo_json} ${record_round}
+    python ./script/plot_single.py output-2hop/$context/${filename} ${topo_json} ${default_cent} ${default_unit} ${default_snapshot_dir} ${record_round}
 
     echo "Run ->"
-    echo "vim output-2hop/${filename}/log.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-2hop/${filename}/command.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-2hop/${filename}/command.txt"
+    echo "vim output-2hop/$context/${filename}/log.txt"
+    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
 }
 
 function gen_rand_topo {
@@ -188,8 +190,8 @@ function compare_batch {
     fi
     x_cent=$1
     unit=$2
-    batch1=$(basename $3)
-    batch2=$(basename $4)
+    batch1="${3%/}"
+    batch2="${4%/}"
     start_seed=$5
     num_seed=$6
     num_node=$7
@@ -202,9 +204,9 @@ function compare_batch {
     square_len=500
 
     end_seed=$(( ${start_seed} + ${num_seed} - 1 ))
-    compare_name="compare-${num_pub}pub-${num_star}stars"
-    rm -rf compare-batch/${compare_name}
-    mkdir compare-batch/${compare_name}
+    compare_name="${num_pub}pubs-${num_star}stars"
+    rm -rf output-compare/${compare_name}
+    mkdir output-compare/${compare_name}
 
     pids=''
     for seed in $(seq ${start_seed} ${end_seed} ); do
@@ -223,7 +225,7 @@ function compare_batch {
         check_init_setup ${simple_model_path} ${sec_hop_path} $name
         topo_json="${simple_path}/${setup_name}.json"
 
-        figname="compare-batch/${compare_name}/${name}"
+        figname="output-compare/${compare_name}/${name}"
         compare ${x_cent} pub $figname ${simple_model_path} ${sec_hop_path} ${topo_json} ${snapshots_dir} ${record_epochs} &
         pids="$pids $!"
     done
@@ -232,7 +234,7 @@ function compare_batch {
         wait $pid
     done
     
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/compare-batch/${compare_name} ."
+    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-compare/${compare_name} ."
 }
 
 function check_init_setup {
@@ -323,9 +325,9 @@ function compare {
 }
 
 function run_batch_2hop {
-    if [ $# -ne 9 ]; then
-        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> num_adapt<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int>"
-        echo "Exmaple. ./run.sh run-batch-2hop 15 15 100 3 1 20 0 500 32"
+    if [ $# -ne 11 ]; then
+        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> num_adapt<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> churn_rate<float> context<str>"
+        echo "Exmaple. ./run.sh run-batch-2hop 15 15 100 3 1 20 0 500 32 0.25 default"
         exit 1
     fi
     start_seed=$1
@@ -337,16 +339,21 @@ function run_batch_2hop {
     proc_std=$7
     square_len=$8
     num_epoch=$9
+    churn_rate=${10}
+    context=${11}
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
-    rm -rf output-2hop/batch-graph
-    mkdir output-2hop/batch-graph
+    rm -rf output-2hop/${context}-context-summary
+    mkdir output-2hop/${context}-context-summary
+    rm -rf output-2hop/${context}-context
+    mkdir output-2hop/${context}-context
+
     pids=""
     names=""
     for seed in $(seq ${start_seed} ${end_seed} ); do
         echo $seed
         name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
         if [[ -f "topo/$name.json" ]]; then 
-            run_2hop $seed topo/${name}.json ${num_epoch} ${num_adapt} &
+            run_2hop $seed topo/${name}.json ${num_epoch} ${num_adapt} ${churn_rate} ${context}-context &
             pids="$pids $!"
             names="$names $name"
         else
@@ -361,18 +368,17 @@ function run_batch_2hop {
 
     for name in $names; do
         exp_name="$name-${num_adapt}stars"
-        cp output-2hop/${exp_name}/${exp_name}.png output-2hop/batch-graph
-        cp output-2hop/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-2hop/batch-graph
-        #cp topo/${name}.png output-simple/batch-graph/${name}-topo.png
+        cp output-2hop/${context}-context/${exp_name}/${exp_name}.png output-2hop/${context}-context-summary
+        cp output-2hop/${context}-context/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-2hop/${context}-context-summary
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/batch-graph ."
+    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/${context}-context-summary . && open ${context}-context-summary/*"
 
 }
 
 function run_batch_simple_model {
-    if [ $# -ne 10 ]; then
-        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> para<y/n>"
-        echo "Exmaple. ./run.sh run-batch-simple-model 15 5 100 3 1 20 0 500 32 y"
+    if [ $# -ne 12 ]; then
+        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> churn_rate<float> para<y/n> context<str>"
+        echo "Exmaple. ./run.sh run-batch-simple-model 15 5 100 3 1 20 0 500 32 0.25 y default"
         exit 1
     fi
    
@@ -385,10 +391,15 @@ function run_batch_simple_model {
     proc_std=$7
     square_len=$8
     num_epoch=$9
-    use_para=${10}
+    churn_rate=${10}
+    use_para=${11}
+    context=${12}
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
-    rm -rf output-simple/batch-graph
-    mkdir output-simple/batch-graph
+    #rm -rf output-simple/${context}-context-summary
+    #mkdir output-simple/${context}-context
+
+    rm -rf output-simple/${context}-context-summary
+    mkdir output-simple/${context}-context-summary
 
     pids=""
     names=""
@@ -397,7 +408,7 @@ function run_batch_simple_model {
             echo $seed
             name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
             gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
-            run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} n &
+            run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} ${churn_rate} n ${context}-context &
             pids="$pids $!"
             names="$names $name"
         done
@@ -410,7 +421,7 @@ function run_batch_simple_model {
             echo $seed
             name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
             gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
-            run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} n
+            run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} ${churn_rate} ${context}-context n
             names="$names $name"
         done
     fi
@@ -418,20 +429,87 @@ function run_batch_simple_model {
     # copy all results to dir
     for name in $names; do
         exp_name="$name-${num_star}stars"
-        cp output-simple/${exp_name}/${exp_name}.png output-simple/batch-graph
-        cp output-simple/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-simple/batch-graph
-        #cp topo/${name}.png output-simple/batch-graph/${name}-topo.png
+        cp output-simple/${context}-context/${exp_name}/${exp_name}.png output-simple/${context}-context-summary
+        cp output-simple/${context}-context/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-simple/${context}-context-summary
+        cp output-simple/${context}-context/${exp_name}/cdfs.png output-simple/${context}-context-summary/${exp_name}-cdfs.png
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/batch-graph ."
+    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}-context-summary . && open ${context}-context-summary/*"
+}
+
+function replot_dir {
+    if [ $# -ne 7 ]; then
+        echo "./run.sh replot-dir context<str> start_seed<int> num_topo<int> num_epoch<int> x_cent<int(0-100)/avg> unit<node/pub/hash> snapshots_dir<snapshots/snapshots-exploit>"
+        echo "Exmaple. ./run.sh replot-dir output-simple/default 15 5 128 90 pub snapshots-exploit"
+        exit 1
+    fi
+    context="${1%/}"
+    start_seed=$2
+    num_topo=$3
+    num_epoch=$4
+    x_cent=$5
+    unit=$6
+    snapshot_dir=$7
+
+    end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
+    end_epoch=$(( ${num_epoch} - 1 ))
+    plot_interval=$(( ${end_epoch} / $default_num_record ))
+    record_round=''
+    for (( COUNTER=0; COUNTER<=${end_epoch}; COUNTER+=${plot_interval} )); do
+        record_round="$record_round $COUNTER"
+    done
+    if [ $COUNTER -ne ${end_epoch} ]; then 
+        record_round="${record_round} ${end_epoch}"
+    fi
+
+    names=''
+    pids=''
+    files=$(ls ${context})
+    for name in ${files}; do
+        names="$names $name"
+        topo_json="${context}/${name}/topo.json"
+        if [ -f ${context}/${name}/${name} ]; then
+            python ./script/plot_dists.py ${context}/${name}/${name} ${topo_json} ${record_round} &
+            pids="$pids $!"
+        fi
+        python ./script/plot_single.py ${context}/${name} ${topo_json} ${x_cent} $unit ${snapshot_dir} ${record_round} &
+        pids="$pids $!"
+        python ./script/plot_node_cdf.py ${context}/${name} ${record_round} &
+        pids="$pids $!"
+    done
+
+
+    #for seed in $(seq ${start_seed} ${end_seed} ); do
+        #filename="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed-${num_star}stars"
+        #names="$names $filename"
+        #topo_name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
+        #topo_json="${context}/$filename/${topo_name}.json"
+        #python ./script/plot_dists.py ${context}/${filename}/${filename} ${topo_json} ${record_round} &
+        #pids="$pids $!"
+        #python ./script/plot_single.py ${context}/${filename} ${topo_json} ${x_cent} $unit ${record_round} &
+        #pids="$pids $!"
+    #done 
+
+    for pid in $pids; do
+        wait $pid
+    done
+    
+    rm -rf ${context}-summary-replot
+    mkdir ${context}-summary-replot
+    for name in $names; do
+        cp ${context}/${name}/${name}.png ${context}-summary-replot
+        #cp ${context}/${name}/${name}-lat${x_cent}-${unit}.png ${context}-summary-replot
+        cp ${context}/${name}/cdfs.png ${context}-summary-replot/${name}-cdfs.png
+    done
+    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/${context}-summary-replot ."
 }
 
 function replot_batch {
     if [ $# -ne 12 ]; then
-        echo "./run.sh replot-batch out_context<str> start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> x_cent<int(0-100)/avg> unit<node/pub/hash>"
+        echo "./run.sh replot-batch context<str> start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> x_cent<int(0-100)/avg> unit<node/pub/hash>"
         echo "Exmaple. ./run.sh replot-batch output-simple 15 5 100 3 1 20 0 500 128 90 pub"
         exit 1
     fi
-    output_context=$(basename $1)
+    context="${1%/}"
     start_seed=$2
     num_topo=$3
     num_node=$4
@@ -455,16 +533,22 @@ function replot_batch {
         record_round="${record_round} ${end_epoch}"
     fi
 
+    replot_dir=${context}-summary-replot
+    rm -rf ${replot_dir}
+    mkdir ${replot_dir}
+
     names=''
     pids=''
     for seed in $(seq ${start_seed} ${end_seed} ); do
         filename="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed-${num_star}stars"
         names="$names $filename"
         topo_name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
-        topo_json="${output_context}/$filename/${topo_name}.json"
-        python ./script/plot_dists.py ${output_context}/${filename}/${filename} ${topo_json} ${record_round} &
-        pids="$pids $!"
-        python ./script/plot_single.py ${output_context}/${filename} ${topo_json} ${x_cent} $unit ${record_round} &
+        topo_json="${context}/$filename/${topo_name}.json"
+        if [ -f ${context}/${filename}/${filename} ]; then 
+            python ./script/plot_dists.py ${context}/${filename}/${filename} ${topo_json} ${record_round} &
+            pids="$pids $!"
+        fi
+        python ./script/plot_single.py ${context}/${filename} ${topo_json} ${x_cent} $unit ${default_snapshot_dir} ${record_round} &
         pids="$pids $!"
     done 
 
@@ -472,30 +556,36 @@ function replot_batch {
         wait $pid
     done
     
-    rm -rf ${output_context}/replot-batch
-    mkdir ${output_context}/replot-batch
+    rm -rf ${context}-summary-replot
+    mkdir ${context}-summary-replot
     for name in $names; do
-        cp ${output_context}/${name}/${name}.png ${output_context}/replot-batch
-        cp ${output_context}/${name}/${name}-lat${x_cent}-${unit}.png ${output_context}/replot-batch
-        #cp topo/${name}.png output-simple/batch-graph/${name}-topo.png
+        cp ${context}/${name}/${name}.png ${context}-summary-replot
+        cp ${context}/${name}/${name}-lat${x_cent}-${unit}.png ${context}-summary-replot
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/${output_context}/replot-batch ."
+    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/${context}-summary-replot ."
 }
 
 function run_simple_model {
-    if [ $# -ne 5 ]; then
-        echo "./run.sh run-simple-model seed<int> topo<str> num_star<int> num_epoch<int> print<y/n>"
-        echo "Exmaple. ./run.sh run-simple-model 1 topo/rand-100node-3pub-20_0proc-500len-7seed.json 10 30 n"
+    if [ $# -ne 7 ]; then
+        echo "./run.sh run-simple-model seed<int> topo<str> num_star<int> num_epoch<int> churn_rate<float> print<y/n> context<str>"
+        echo "Exmaple. ./run.sh run-simple-model 1 topo/rand-100node-3pub-20_0proc-500len-7seed.json 10 30 0.25 n default"
         exit 1
     fi
     seed=$1
     topo_json=$2
     num_star=$3
     num_epoch=$4
-    printout=$5
+    churn_rate=$5
+    printout=$6
+    context=$7
 
     end_epoch=$(( ${num_epoch} - 1 ))
     plot_interval=$(( ${end_epoch} / $default_num_record ))
+    if [ ${plot_interval} -eq 0 ]; then
+        echo "${plot_interval} is too small. Increase epoch "
+        exit 1
+    fi
+    
     record_round=''
     for (( COUNTER=0; COUNTER<=${end_epoch}; COUNTER+=${plot_interval} )); do
         record_round="$record_round $COUNTER"
@@ -503,36 +593,35 @@ function run_simple_model {
     if [ $COUNTER -ne ${end_epoch} ]; then 
         record_round="${record_round} ${end_epoch}"
     fi
-    #record_round=$(seq 0 $(( ${num_epoch} - 1)))
 
     filename=$(basename -- "$topo_json")
     filename="${filename%.*}"
     filename="$filename-${num_star}stars"
 
-    unit='pub'
-    
-    rm -rf output-simple/${filename}
-    mkdir -p output-simple/${filename}
-    mkdir -p output-simple/${filename}/snapshots
-    mkdir -p output-simple/${filename}/snapshots-exploit
+    rm -rf output-simple/${context}/${filename}
+    mkdir -p output-simple/${context}/${filename}
+    mkdir -p output-simple/${context}/${filename}/snapshots
+    mkdir -p output-simple/${context}/${filename}/snapshots-exploit
+    mkdir -p output-simple/${context}/${filename}/graphs
 
 
-    cp ${topo_json} output-simple/${filename}
-    cp ${topo_json} output-simple/${filename}/topo.json
-    cp testbed.py output-simple/${filename}
+    cp ${topo_json} output-simple/${context}/${filename}
+    cp ${topo_json} output-simple/${context}/${filename}/topo.json
+    cp testbed.py output-simple/${context}/${filename}
 
     startDate=$(date +%s) 
-    echo "Started at: $(date)" > "output-simple/${filename}/command.txt"
-    echo "./run.sh run-simple-model $@" >> "output-simple/${filename}/command.txt"
-    echo "python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_epoch} $printout" >> "output-simple/${filename}/command.txt"
-    echo "python ./script/plot_dists.py output-simple/${filename}/${filename} ${topo_json}" ${record_round} >> "output-simple/${filename}/command.txt"
-    echo "python ./script/plot_single.py output-simple/${filename} ${topo_json} ${default_cent} ${default_unit} " ${record_round} >> "output-simple/${filename}/command.txt"
+    echo "Started at: $(date)" > "output-simple/${context}/${filename}/command.txt"
+    echo "./run.sh run-simple-model $@" >> "output-simple/${context}/${filename}/command.txt"
+    echo "python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${context}/${filename}/${filename} ${num_epoch} ${churn_rate} $printout" >> "output-simple/${context}/${filename}/command.txt"
+    echo "python ./script/plot_dists.py output-simple/${context}/${filename}/${filename} ${topo_json}" ${record_round} >> "output-simple/${context}/${filename}/command.txt"
+    echo "python ./script/plot_single.py output-simple/${context}/${filename} ${topo_json} ${default_cent} ${default_unit} ${default_snapshot_dir}" ${record_round} >> "output-simple/${context}/${filename}/command.txt"
+    echo "python ./script/plot_node_cdf.py output-simple/${context}/${filename} " ${record_round} >> "output-simple/${context}/${filename}/command.txt"
 
 
     if [ $printout = 'y' ]; then
-        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_star} ${num_epoch} y
+        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${context}/${filename}/${filename} ${num_star} ${num_epoch} ${churn_rate} y
     else
-        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${filename}/${filename} ${num_star} ${num_epoch} n 
+        python ./testbed.py run-simple-model $seed ${topo_json} output-simple/${context}/${filename}/${filename} ${num_star} ${num_epoch} ${churn_rate} n 
         #> output-simple/${filename}/log.txt
     fi
 
@@ -540,19 +629,19 @@ function run_simple_model {
         echo "simulation bug. Exit"
         exit 1
     fi
-    echo "Ended at: $(date)" >> "output-simple/${filename}/command.txt"
+    echo "Ended at: $(date)" >> "output-simple/${context}/${filename}/command.txt"
     endDate=$(date +%s)
     runtime=$(( $endDate - $startDate ))
-    echo "Runtime: $runtime sec" >> "output-simple/${filename}/command.txt"
+    echo "Runtime: $runtime sec" >> "output-simple/${context}/${filename}/command.txt"
 
-    python ./script/plot_dists.py output-simple/${filename}/${filename} ${topo_json} ${record_round}
-    python ./script/plot_single.py output-simple/${filename} ${topo_json} ${default_cent} ${default_unit} ${record_round}
-
+    python ./script/plot_dists.py output-simple/${context}/${filename}/${filename} ${topo_json} ${record_round}
+    python ./script/plot_single.py output-simple/${context}/${filename} ${topo_json} ${default_cent} ${default_unit} ${default_snapshot_dir} ${record_round}
+    python ./script/plot_node_cdf.py output-simple/${context}/${filename} ${record_round}
 
     echo "Run ->"
-    echo "vim output-simple/${filename}/log.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-simple/${filename}/command.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-simple/${filename}/command.txt"
+    echo "vim output-simple/${context}/${filename}/log.txt"
+    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
 }
 
 subcommand=$1
@@ -581,6 +670,8 @@ case $subcommand in
         compare ${@:2} ;;
     replot-batch)
         replot_batch ${@:2} ;;
+    replot-dir)
+        replot_dir ${@:2} ;;
     *)
         tput setaf 1
         echo "Unknown subcommand ${subcommand}"

@@ -91,6 +91,8 @@ class NetworkSim:
         self.snapshot_exploit_dir = os.path.join(dirpath, 'snapshots-exploit')
         self.write_adapts_node(os.path.join(dirpath, 'adapts'))
 
+        self.epoch_graph_dir = os.path.join(dirpath, 'graphs')
+
         self.num_thread = min(64, len(self.stars))
         self.worker_pools = Pool(processes=self.num_thread) 
 
@@ -216,6 +218,22 @@ class NetworkSim:
                 graph_json.append(peer)
             json.dump(graph_json, w, indent=4)
 
+    def write_epoch_graph(self, e):
+        filename = os.path.join(self.epoch_graph_dir, 'epoch'+str(e)+'.json')
+        with open(filename, 'w') as w:
+            graph_json = []
+            for u in range(self.num_node):
+                node = self.nodes[u]
+                outs = sorted([int(i) for i in node.outs])
+                ins = sorted([int(i) for i in node.ins])
+                peer = {
+                    'node': int(u),
+                    'outs': outs,
+                    'ins': ins
+                    }
+                graph_json.append(peer)
+            json.dump(graph_json, w, indent=4)
+
     def write_adapts_node(self, filename):
         with open(filename, 'w') as w:
             sorted_stars = sorted(self.stars)
@@ -236,8 +254,13 @@ class NetworkSim:
     def construct_exploit_graph(self, curr_outs):
         G = nx.Graph()
         for i, node in self.nodes.items():
-            for k in range(self.num_out-self.num_rand):
-                u = curr_outs[i][k]
+            out_peers = []
+            if i in self.stars:
+                out_peers = curr_outs[i][:self.num_out-self.num_rand]
+            else:
+                out_peers = curr_outs[i]
+
+            for u in out_peers:
                 delay = self.ld[i][u] + node.node_delay/2 + self.nodes[u].node_delay/2
                 if i == u:
                     print('self loop', i)
@@ -355,6 +378,7 @@ class NetworkSim:
 
         for e in range(self.num_epoch):
             self.take_snapshot(e, curr_outs)
+            self.write_epoch_graph(e)
             self.oracle.check(curr_outs)
             ps = self.broadcast_msgs(num_msg)
             if e+1 >= self.num_topo:

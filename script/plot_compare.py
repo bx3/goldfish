@@ -32,7 +32,7 @@ max_y = 0
 num_node = 0
 
 num_row = 2 # min(2, num_plot)
-num_col = 2 # int(math.ceil(num_plot/float(num_row)))
+num_col = 3 # int(math.ceil(num_plot/float(num_row)))
 
 fig, axs = plt.subplots(ncols=num_col, nrows=num_row, figsize=(10*num_col,10*num_row))
 
@@ -59,32 +59,46 @@ for out_dir in out_dirs:
         num_node = len(lats)
     exp_data[out_dir] = epoch_lats
 
+all_sorted_lats = {}
+num_pub, pubs = parse_topo(topo)
 # plot all nodes
 for out_dir in out_dirs:
     adapts = parse_adapt(os.path.join(out_dir, 'adapts'))
     epoch_lats = exp_data[out_dir]
     title = str(os.path.dirname(out_dir))+' '+str(os.path.basename(out_dir))
-    patches = plot_figure(epoch_lats, axs[fig_index], epochs, min_y, max_y, num_node, title, adapts)
+    patches, sorted_lats = plot_figure(epoch_lats, axs[fig_index], epochs, min_y, max_y, num_node-1, title, adapts)
+    all_sorted_lats[out_dir] = sorted_lats
     interval = int(math.ceil( len(epochs) / num_patch_per_row))
     axs[fig_index].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
     fig_index += 1
 
+# plot difference
+names = '\n'.join(out_dirs)
+title = 'diff, ' + str(x_percent)+', '+percent_unit +  '\n' + names
+patches = plot_diff_lats(all_sorted_lats, out_dirs, axs[fig_index], epochs, num_node-1, title)
+interval = int(math.ceil( len(epochs) / num_patch_per_row))
+axs[fig_index].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
+fig_index += 1
 
-num_pub, pubs = parse_topo(topo)
 # plot stars only
+all_sorted_stars_lats = {}
 for out_dir in out_dirs:
     adapts = parse_adapt(os.path.join(out_dir, 'adapts'))
     epoch_lats = exp_data[out_dir]
     title = 'stars ' + str(os.path.dirname(out_dir))+' '+str(os.path.basename(out_dir))
-    patches = plot_stars_figure(epoch_lats, axs[fig_index], epochs, min_y, max_y, len(adapts), title, adapts)
+    patches, sorted_lats = plot_stars_figure(epoch_lats, axs[fig_index], epochs, min_y, max_y, len(adapts)-1, title, adapts)
+    all_sorted_stars_lats[out_dir] = sorted_lats
     interval = int(math.ceil( len(epochs) / num_patch_per_row))
     axs[fig_index].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
     fig_index += 1
 
 
-# fig_index = 0
-# for out_dir in out_dirs:
-    # axs[fig_index].set_ylim(0, max_y)
-    # fig_index += 1
+
+title = 'diff, ' + str(x_percent)+', '+percent_unit +  '\n ' + names 
+patches = plot_diff_lats(all_sorted_stars_lats, out_dirs, axs[fig_index], epochs, len(adapts)-1, title)
+interval = int(math.ceil( len(epochs) / num_patch_per_row))
+axs[fig_index].legend(loc='lower center', handles=patches, fontsize='small', ncol= math.ceil(len(patches)/interval))
+fig_index += 1
+
 
 fig.savefig(fig_name)

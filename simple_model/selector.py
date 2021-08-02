@@ -88,6 +88,8 @@ class SimpleSelector:
 
         rand_nodes = []
         selected = self.subset_exploiter.select_subset_peer(H, nodes,num_select,plus_mask,oracle,curr_out)
+        # selected = self.count_exploiter.select_best_peer(H, nodes, num_select, plus_mask, oracle, curr_out)
+
         if len(selected) != num_select:
              # selected = self.count_exploiter.select_best_peer(H, nodes, num_select, plus_mask, oracle)
              # if len(selected) != num_select:
@@ -110,7 +112,9 @@ class SimpleSelector:
         num_select = self.out_lim-self.num_rand
 
         rand_nodes = []
-        selected = self.subset_exploiter.select_subset_peer(H, nodes, num_select, plus_mask, oracle)
+        # selected = self.subset_exploiter.select_subset_peer(H, nodes, num_select, plus_mask, oracle)
+        selected = self.count_exploiter.select_best_peer(H, nodes, num_select, plus_mask, oracle)
+
         if len(selected) != num_select:
             rand_nodes = self.draw_random_peers(nodes, num_select-len(selected), oracle)            
 

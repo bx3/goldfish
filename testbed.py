@@ -27,7 +27,12 @@ from sec_hop.experiment import Experiment as SecHopExperiment
 def calculate_T(miss_prob, num_node, num_pub, num_topo, top_n_peer):
     T = math.ceil(math.log(miss_prob) / math.log(1.0 - 1.0/num_pub)) / top_n_peer
     return int(T * num_topo*top_n_peer)
-    
+
+num_out = 4
+num_in =  8
+num_2hop = 0
+num_rand = 1
+num_msg = 40 # 20 *2   
 
 def run_simple_model():
     subcommand = sys.argv[1]
@@ -36,28 +41,22 @@ def run_simple_model():
     plt_name = sys.argv[4]
     num_star = int(sys.argv[5])
     num_epoch = int(sys.argv[6])
-    print_log = sys.argv[7]=='y'
+    churn_rate = float(sys.argv[7])
+    print_log = sys.argv[8]=='y'
+
 
     num_topo = 2 
     top_n_peer = 2
     # extra info, extra choose appropriate T as hyperparameter
     num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
-    T = calculate_T(0.001, num_node, num_pub, num_topo, top_n_peer) 
-    T = min(T, 80)
-    print('T', T)
-
-    num_out = 6
-    num_rand = 2
-    num_in = 12
-    churn_rate = 0.25
-
+    # T = calculate_T(0.001, num_node, num_pub, num_topo, top_n_peer) 
+    T = num_msg*num_topo
     print('pubs', pubs)
 
     # pools = [i for i in range(num_node) if i not in pubs] # node using adaptive algo 
     pools = [i for i in range(num_node)]
     stars = list(np.random.choice(pools, num_star, replace=False))
     print('stars', stars)
-
 
     mc_epochs = 2000
     mc_lr = 1e-2
@@ -229,17 +228,15 @@ def run_2hop():
     topo =  sys.argv[3]
     num_epoch = int(sys.argv[4])
     num_adapt = int(sys.argv[5])
-    data_path = sys.argv[6]
+    churn_rate = float(sys.argv[6])
+    data_path = sys.argv[7]
+
 
     num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
 
-    out_lim = 6
-    in_lim = 12 
-    num_2hop = 0
-    num_rand = 2
-    num_msg = 40
 
-    num_keep = out_lim - num_rand - num_2hop
+
+    num_keep = num_out - num_rand - num_2hop
 
     print('pubs', pubs)
     # pools = [i for i in range(num_node) if i not in pubs] # node using adaptive algo 
@@ -247,12 +244,11 @@ def run_2hop():
 
     stars = list(np.random.choice(pools, num_adapt, replace=False))
     print('stars', stars)
-    churn_rate = 0.25
 
     sec_hop_model = SecHopExperiment(
         topo,
-        in_lim,
-        out_lim, 
+        num_in,
+        num_out, 
         data_path,
         num_keep, 
         num_2hop, 
