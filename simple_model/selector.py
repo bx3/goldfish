@@ -16,8 +16,14 @@ class SimpleSelector:
         self.in_lim = in_lim
         self.state = state # states is the out conns
         self.num_rand = num_rand
-        self.depleting_pool = explorer.DepletingPool(self.id, self.known_peers, logfile)
-        self.greedy_explorer = explorer.GreedyExplorer(i)
+
+        # self.depleting_pool = explorer.DepletingPool(self.id, self.known_peers, logfile)
+        # self.random_explorer = explorer.RandomExplorer(self.id, self.known_peers, logfile)
+        # self.greedy_explorer = explorer.GreedyExplorer(i)
+
+        self.explorer = explorer.DepletingPool(self.id, self.known_peers, logfile)
+        # self.explorer = explorer.RandomExplorer(self.id, self.known_peers, logfile)
+
 
         self.subset_exploiter = employer.SubsetExploiter(logfile, self.id)
         self.count_exploiter = employer.CountExploiter(logfile, self.id)
@@ -97,38 +103,38 @@ class SimpleSelector:
 
         self.state = selected + rand_nodes
         exploits = selected + rand_nodes
-        explore_nodes = self.depleting_pool.get_exploring_peers(nodes, exploits, self.num_rand, oracle)
+        explore_nodes = self.explorer.get_exploring_peers(nodes, exploits, self.num_rand, oracle)
         self.state = selected + rand_nodes + explore_nodes
 
         return exploits, explore_nodes
 
 
     # nodes is a list whose value is node id
-    def old_run_selector(self, H_in, nodes, unkn_plus_mask, plus_mask, unkn_unab_mask, oracle, curr_out):
-        non_value_mask = 1*((plus_mask+unkn_unab_mask+unkn_plus_mask)>0)
-        H = H_in.copy()*(1-non_value_mask) + 1e10*non_value_mask
+    # def old_run_selector(self, H_in, nodes, unkn_plus_mask, plus_mask, unkn_unab_mask, oracle, curr_out):
+        # non_value_mask = 1*((plus_mask+unkn_unab_mask+unkn_plus_mask)>0)
+        # H = H_in.copy()*(1-non_value_mask) + 1e10*non_value_mask
 
-        formatter.printt('\tExploit vs. Explore\n', self.log)
-        num_select = self.out_lim-self.num_rand
+        # formatter.printt('\tExploit vs. Explore\n', self.log)
+        # num_select = self.out_lim-self.num_rand
 
-        rand_nodes = []
-        # selected = self.subset_exploiter.select_subset_peer(H, nodes, num_select, plus_mask, oracle)
-        selected = self.count_exploiter.select_best_peer(H, nodes, num_select, plus_mask, oracle)
+        # rand_nodes = []
+        # # selected = self.subset_exploiter.select_subset_peer(H, nodes, num_select, plus_mask, oracle)
+        # selected = self.count_exploiter.select_best_peer(H, nodes, num_select, plus_mask, oracle)
 
-        if len(selected) != num_select:
-            rand_nodes = self.draw_random_peers(nodes, num_select-len(selected), oracle)            
+        # if len(selected) != num_select:
+            # rand_nodes = self.draw_random_peers(nodes, num_select-len(selected), oracle)            
 
-        self.state = selected + rand_nodes
+        # self.state = selected + rand_nodes
 
-        # selected, rand_nodes = self.get_best_ranks(H, nodes, self.out_lim-self.num_rand)
-        # selected, rand_nodes = self.select_best_peer(H, nodes, self.out_lim-self.num_rand, plus_mask)
-        # selected, rand_nodes = self.select_subset_peer(H, nodes, self.out_lim-self.num_rand, plus_mask, oracle)
+        # # selected, rand_nodes = self.get_best_ranks(H, nodes, self.out_lim-self.num_rand)
+        # # selected, rand_nodes = self.select_best_peer(H, nodes, self.out_lim-self.num_rand, plus_mask)
+        # # selected, rand_nodes = self.select_subset_peer(H, nodes, self.out_lim-self.num_rand, plus_mask, oracle)
 
-        # select node to explore
-        explore_nodes = self.depleting_pool.get_exploring_peers(nodes, selected+rand_nodes, self.num_rand)
-        # explore_nodes = self.greedy_explorer.get_exploring_peers(H, nodes, plus_mask, selected+rand_nodes,self.num_rand)
+        # # select node to explore
+        # explore_nodes = self.depleting_pool.get_exploring_peers(nodes, selected+rand_nodes, self.num_rand)
+        # # explore_nodes = self.greedy_explorer.get_exploring_peers(H, nodes, plus_mask, selected+rand_nodes,self.num_rand)
 
-        self.state = selected + rand_nodes + explore_nodes
-        return selected + rand_nodes, explore_nodes
+        # self.state = selected + rand_nodes + explore_nodes
+        # return selected + rand_nodes, explore_nodes
         
 

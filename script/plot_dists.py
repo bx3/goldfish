@@ -64,7 +64,10 @@ def plot_dist(star_i, dists_hist, ax, record_epochs):
     index = pd.Index(x_peers, name='epoch, peers')
     
     df = pd.DataFrame(pubs_dist, index=index)
-    df.plot(ax=ax, kind='bar', stacked=True)
+    if len(pubs) <= 10:
+        df.plot(ax=ax, kind='bar', stacked=True)
+    else:
+        df.plot(ax=ax, kind='bar', stacked=True, legend=False)
     for index, label in enumerate(ax.get_xticklabels()):
         if index % 1 == 0:
             label.set_visible(True)
@@ -75,10 +78,10 @@ def plot_dist(star_i, dists_hist, ax, record_epochs):
     ax.set_ylabel('dist')
     basename = os.path.basename(filename)
     ax.set_title(basename + ' node'+str(star_i))
-    if len(pubs) <= 10:
-        ax.legend(pubs_line_dist, title='pubs (id,dist)', loc='upper right') #bbox_to_anchor=(1.0,1), 
-    # pubs_line_dist, 
-    plt.tight_layout()
+    # if len(pubs) <= 10:
+        # ax.legend(pubs_line_dist, title='pubs (id,dist)', loc='upper right') #bbox_to_anchor=(1.0,1), 
+    
+    # plt.tight_layout()
 
 
 # script starts

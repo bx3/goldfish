@@ -19,6 +19,7 @@ from network.communicator import Communicator
 from network import comm_network
 from network.oracle import SimpleOracle
 from simple_model import formatter
+from simple_model.scheduler import NodeScheduler
 from mat_complete.mat_comp_solver import construct_table
 # from simple_model import mc_optimizer
 from simple_model import mc_optimizer
@@ -36,7 +37,7 @@ def delineate_out_actions(old_outs, new_outs):
     return rm_outs, add_outs
 
 class NetworkSim:
-    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate):
+    def __init__(self, topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate, update_interval):
         self.T = T
         self.N = num_out
         self.H_ref = None
@@ -52,9 +53,10 @@ class NetworkSim:
         self.num_epoch = num_epoch
         self.num_topo = num_topo
         self.num_rand = num_rand
+        self.update_interval = update_interval
 
         self.churn_rate = churn_rate
-
+        
         assert(T%num_topo==0)
         self.table_directions = ['incoming', 'outgoing', 'bidirect']
 
@@ -67,8 +69,9 @@ class NetworkSim:
         self.pub_hist = []
         self.sparse_tables = {i: SparseTable(i) for i in range(self.num_node)}
 
-        # self.star_i = interested_i
         self.stars = stars 
+        self.schedulers = {i: NodeScheduler(i, self.update_interval, self.num_topo) for i in self.stars}
+
         # self.mco = mc_optimizer.McOptimizer(self.star_i, mc_epochs, mc_lr, mc_exit_loss_diff, top_n_peer)
         dirpath = os.path.dirname(plt_name)
         if not print_log:
@@ -108,8 +111,13 @@ class NetworkSim:
         for u in range(self.num_node):
             self.nodes[u].update_conns(curr_outs[u], curr_ins[u])
 
-    def choose_x_random(self, outs, x, star_i):
-        keeps = list(np.random.choice(outs, x, replace=False))
+    def get_exploring_peers(self, curr_peers, outs, star_i):
+        explorer = self.selectors[star_i].explorer
+        peers = explorer.get_exploring_peers(curr_peers, outs[:self.num_out-self.num_rand], self.num_rand, self.oracle)
+        return peers
+
+    def random_explore(self, outs, star_i):
+        keeps = outs[:self.num_out-self.num_rand]
         pools = [i for i in range(self.num_node) if i!=star_i and i not in outs]
         np.random.shuffle(pools)
         rands = []
@@ -117,11 +125,30 @@ class NetworkSim:
             un = self.oracle.can_i_connect(star_i, [i])
             if len(un) == 0:
                 rands.append(i)
-            if len(outs)-x == len(rands):
+            if self.num_rand == len(rands):
+                break
+        if self.num_rand != len(rands):
+            print('cannot find ', len(outs)-self.num_rand, 'peers satisfying oracle')
+            sys.exit(1)
+        assert(len(set(keeps).intersection(set(rands))) == 0)
+        rm_outs, add_outs = delineate_out_actions(outs, keeps+rands)
+        self.oracle.update(star_i, [], add_outs, rm_outs)
+        return list(keeps) + list(rands)
+
+    def choose_x_random(self, outs, x, star_i):
+        keeps = list(np.random.choice(outs, len(outs)-x, replace=False))
+        pools = [i for i in range(self.num_node) if i!=star_i and i not in outs]
+        np.random.shuffle(pools)
+        rands = []
+        for i in pools:
+            un = self.oracle.can_i_connect(star_i, [i])
+            if len(un) == 0:
+                rands.append(i)
+            if x == len(rands):
                 break
 
-        if len(outs)-x != len(rands):
-            print('cannot find ', len(outs)-x, 'peers satisfying oracle')
+        if x != len(rands):
+            print('cannot find ', x, 'peers satisfying oracle')
             sys.exit(1)
 
         assert(len(set(keeps).intersection(set(rands))) == 0)
@@ -161,7 +188,8 @@ class NetworkSim:
         
     def run_mc(self, i, curr_out, e):
         slots = self.sparse_tables[i].table[-self.T:]
-
+        print(slots)
+        sys.exit(1)
         incomplete_table,M,nM,max_time,ids,ids_direct = construct_table(slots, i, self.table_directions)
         topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
 
@@ -309,9 +337,11 @@ class NetworkSim:
             else:
                 j = path[1]
                 topo_length = length - self.proc_delay[j]/2.0 + self.proc_delay[m]/2.0
-                line_len = (math.sqrt(
-                    (self.loc[star_i][0]-self.loc[m][0])**2+
-                    (self.loc[star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
+                line_len = self.ld[star_i][m] + self.proc_delay[m]
+                # line_len_comp =  int(math.ceil(math.sqrt(
+                    # (self.loc[star_i][0]-self.loc[m][0])**2+
+                    # (self.loc[star_i][1]-self.loc[m][1])**2 ))) +self.proc_delay[m]
+                # assert(line_len_comp == line_len)
 
             dists[m] = (j, round(topo_length, 3), round(line_len, 3))
             runtime = round(time.time() - start_t)
@@ -377,32 +407,54 @@ class NetworkSim:
         churn_stars = []
 
         for e in range(self.num_epoch):
+            self.log_epoch(e, curr_outs, churn_stars)
             self.take_snapshot(e, curr_outs)
             self.write_epoch_graph(e)
             self.oracle.check(curr_outs)
             ps = self.broadcast_msgs(num_msg)
-            if e+1 >= self.num_topo:
-                churn_stars = comm_network.get_network_churning_nodes(self.churn_rate, self.stars)
+
+            churn_stars = comm_network.get_network_churning_nodes(self.churn_rate, self.stars)
+            for star_i in churn_stars:
+                self.schedulers[star_i].initiate_update(e)
+            mc_stars, acc_stars = self.run_scheduler(e)
+
+            if len(mc_stars) > 0:
                 if self.num_thread == 1:
                     # single thread
-                    for star_i in churn_stars:
+                    for star_i in mc_stars:
                         curr_outs[star_i] = self.run_mc(star_i, curr_outs[star_i], e)
                 else:
                     # parallel threads
-                    outputs = self.run_parallel_mc(curr_outs, e, churn_stars)
+                    outputs = self.run_parallel_mc(curr_outs, e, mc_stars)
                     for star_i, exploit_explore in outputs.items():
                         curr_outs[star_i] = exploit_explore[0] + exploit_explore[1]
-            else:
-                for star_i in self.stars:
-                    curr_outs[star_i] = self.choose_x_random(curr_outs[star_i], 1, star_i)
+
+            if len(acc_stars) > 0:
+                for star_i in acc_stars:
+                    curr_peers = list(self.nodes[star_i].get_peers())
+                    last_out = curr_outs[star_i]
+                    rands = self.get_exploring_peers(curr_peers, last_out, star_i) 
+                    curr_outs[star_i] = last_out[:self.num_out-self.num_rand] + rands
+                    self.oracle.update(star_i, [], rands, last_out[-self.num_rand:])
 
             for star_i in self.stars:
                 self.get_truth_distance(star_i, curr_outs[star_i][:self.num_out-self.num_rand], e)
 
             self.setup_conn_graph(curr_outs)
-            self.log_epoch(e, curr_outs, churn_stars)
+            
             
         self.save_dists_hist()
+
+    def run_scheduler(self, e):
+        mc_stars = []
+        acc_stars = []
+        for star_i in self.stars:
+            state = self.schedulers[star_i].get_curr_state(e)
+            if state == 'run':
+                mc_stars.append(star_i)
+            elif state == 'acc':
+                acc_stars.append(star_i)
+        return mc_stars, acc_stars
 
     def run_parallel_mc(self, curr_outs, e, churn_stars):
         stars_inputs = {}

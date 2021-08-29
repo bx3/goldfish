@@ -45,7 +45,9 @@ def run_simple_model():
     print_log = sys.argv[8]=='y'
 
 
-    num_topo = 2 
+    num_topo = 3 
+    update_interval = 2
+
     top_n_peer = 2
     # extra info, extra choose appropriate T as hyperparameter
     num_pub, num_node, pubs = net_init.get_num_pub_node(topo)
@@ -63,7 +65,7 @@ def run_simple_model():
     mc_exit_loss_diff = 1e-3
 
     
-    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate)
+    m = NetworkSim(topo, num_out, num_in, num_epoch, T, num_topo, stars, mc_epochs, mc_lr, mc_exit_loss_diff, num_rand, top_n_peer, plt_name, print_log, churn_rate, update_interval)
     start_t = time.time()
     m.run()
     print('finish', num_epoch, 'epochs in', round(time.time()-start_t,2), 'sec')

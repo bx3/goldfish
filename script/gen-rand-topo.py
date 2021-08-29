@@ -84,6 +84,8 @@ for i in range(num_node):
 
 summary = {
     'num_node': num_node,
+    'num_pub': num_pub,
+    'topo_type': 'rand',
     'square_length': square_len,
     }
 setup = {'summary': summary, 'nodes': nodes}

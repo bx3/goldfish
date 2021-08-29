@@ -114,9 +114,11 @@ function run_2hop {
     mkdir -p output-2hop/$context/${filename}
     mkdir -p output-2hop/$context/${filename}/snapshots
     mkdir -p output-2hop/$context/${filename}/snapshots-exploit
+    mkdir -p output-simple/${context}/${filename}/graphs
 
 
     cp ${topo_json} output-2hop/$context/${filename}
+    cp ${topo_json} output-2hop/${context}/${filename}/topo.json
     cp testbed.py output-2hop/$context/${filename}
 
 
@@ -132,11 +134,28 @@ function run_2hop {
 
     python ./script/plot_dists.py output-2hop/$context/${filename}/${filename} ${topo_json} ${record_round}
     python ./script/plot_single.py output-2hop/$context/${filename} ${topo_json} ${default_cent} ${default_unit} ${default_snapshot_dir} ${record_round}
+    python ./script/plot_node_cdf.py output-2hop/${context}/${filename} ${record_round}
 
     echo "Run ->"
     echo "vim output-2hop/$context/${filename}/log.txt"
     echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
     echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
+}
+
+function gen_real_topo {
+    if [ $# -ne 6 ]; then 
+        echo "./run.sh gen-real-topo num_node<int> num_pub<int> name<str> proc_mean<float> proc_std<float> seed<int>"
+        exit 0
+    fi
+    num_node=$1
+    num_pub=$2
+    name=$3
+    proc_mean=$4
+    proc_std=$5
+    seed=$6
+    server_meta='inputs/servers-2020-07-19.csv'
+    ping_data='inputs/pings-2020-07-19-2020-07-20.csv'
+    ./script/gen-real-topo.py ${server_meta} ${ping_data} $@ > ./topo/${name}.json
 }
 
 function gen_rand_topo {
@@ -183,8 +202,8 @@ function gen_datacenter {
 }
 
 function compare_batch {
-    if [ $# -lt 11 ]; then
-        echo "./run.sh compare-batch x-percent<int0-100> percent-unit<node/hash> batch1<str> batch2<str> start_seed<int> num_seed<int> num_node<int> num_pub<int> num_star<int> snapshots_dir<snapshots/snapshots-exploit> epochs<int list>"
+    if [ $# -lt 12 ]; then
+        echo "./run.sh compare-batch x-percent<int0-100> percent-unit<node/hash> batch1<str> batch2<str> start_seed<int> num_seed<int> num_node<int> num_pub<int> num_star<int> snapshots_dir<snapshots/snapshots-exploit> topo_type<real/rand> epochs<int list>"
         echo "Example. ./run.sh compare-batch 90 pub output-simple/ output-2hop/ 15 15 100 3 1 snapshots-exploit 0 2 4 8 16 31" 
         exit 1
     fi
@@ -198,7 +217,8 @@ function compare_batch {
     num_pub=$8
     num_star=$9
     snapshots_dir=${10}
-    record_epochs=${@:11}
+    topo_type=${11}
+    record_epochs=${@:12}
     proc_mean=20
     proc_std=0
     square_len=500
@@ -210,7 +230,7 @@ function compare_batch {
 
     pids=''
     for seed in $(seq ${start_seed} ${end_seed} ); do
-        name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
+        name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
         simple_model_path="${batch1}/$name-${num_star}stars"
         sec_hop_path="${batch2}/$name-${num_star}stars"
         if [[ ! -d "${simple_model_path}" ]]; then
@@ -250,12 +270,12 @@ function check_init_setup {
         echo "Missing. ${sec_hop_path}/adapts"
         exit 1
     fi
-    if [ ! -f "${simple_path}/${setup_name}.json" ]; then
-        echo "Missing. ${simple_path}/${setup_name}.json"
+    if [ ! -f "${simple_path}/topo.json" ]; then
+        echo "Missing. ${simple_path}/topo.json"
         exit 1
     fi
-    if [ ! -f "${sec_hop_path}/${setup_name}.json" ]; then
-        echo "Missing. ${sec_hop_path}/${setup_name}.json"
+    if [ ! -f "${sec_hop_path}/topo.json" ]; then
+        echo "Missing. ${sec_hop_path}/topo.json"
         exit 1
     fi
     if [ ! -f "${simple_path}/init.json" ]; then
@@ -277,7 +297,7 @@ function check_init_setup {
         exit 1
     fi
 
-    cmp -s "${simple_path}/${setup_name}.json" "${sec_hop_path}/${setup_name}.json"
+    cmp -s "${simple_path}/topo.json" "${sec_hop_path}/topo.json"
     topo_result=$?
     if [ ${topo_result} -ne 0 ]; then
         echo "Error. topology json file are diff."
@@ -298,7 +318,7 @@ function check_init_setup {
 }
 
 function compare {
-    if [ $# -lt 6 ]; then
+    if [ $# -lt 8 ]; then
         echo "./run.sh compare x-percent<int(0-100)/avg> percent-unit<node/pub/hash> figname<str> exp1<str> exp2<str> topo<str> snapshots_dir<snapshots/snapshots-exploit> epochs<int list>"
         exit 1
     fi
@@ -307,17 +327,21 @@ function compare {
     figname=$3
     exp1=$4
     exp2=$5
-    snapshot_dir=$6
-    record_list=${@:7}
+    topo_json=$6
+    snapshot_dir=$7
+    record_list=${@:8}
 
     python ./script/plot_compare.py $@
     if [ "$?" -ne 0 ]; then
         echo "simulation bug. Exit"
         exit 1
-    fi   
+    fi 
+
 
     #cvg_name="compare-batch/${compare_name}/${name}-box-cvg"
     #python script/plot_convergence.py ${cvg_name} $cent $unit ${simple_model_path} ${sec_hop_path} 
+    cdfs_name="output-compare/${compare_name}/${name}-cdfs"
+    python script/plot_compare_cdfs.py ${cdfs_name} ${exp1} ${exp2} ${record_list}
 
     currpath=$(pwd)
     echo "Run ->"
@@ -326,7 +350,7 @@ function compare {
 
 function run_batch_2hop {
     if [ $# -ne 11 ]; then
-        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> num_adapt<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> churn_rate<float> context<str>"
+        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> num_adapt<int> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> context<str>"
         echo "Exmaple. ./run.sh run-batch-2hop 15 15 100 3 1 20 0 500 32 0.25 default"
         exit 1
     fi
@@ -337,7 +361,7 @@ function run_batch_2hop {
     num_adapt=$5
     proc_mean=$6
     proc_std=$7
-    square_len=$8
+    topo_type=$8
     num_epoch=$9
     churn_rate=${10}
     context=${11}
@@ -351,7 +375,7 @@ function run_batch_2hop {
     names=""
     for seed in $(seq ${start_seed} ${end_seed} ); do
         echo $seed
-        name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
+        name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
         if [[ -f "topo/$name.json" ]]; then 
             run_2hop $seed topo/${name}.json ${num_epoch} ${num_adapt} ${churn_rate} ${context}-context &
             pids="$pids $!"
@@ -370,6 +394,10 @@ function run_batch_2hop {
         exp_name="$name-${num_adapt}stars"
         cp output-2hop/${context}-context/${exp_name}/${exp_name}.png output-2hop/${context}-context-summary
         cp output-2hop/${context}-context/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-2hop/${context}-context-summary
+
+        cp output-2hop/${context}-context/${exp_name}/cdfs.png output-2hop/${context}-context-summary/${exp_name}-cdfs.png
+
+
     done
     echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/${context}-context-summary . && open ${context}-context-summary/*"
 
@@ -377,7 +405,7 @@ function run_batch_2hop {
 
 function run_batch_simple_model {
     if [ $# -ne 12 ]; then
-        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> square_len<int> num_epoch<int> churn_rate<float> para<y/n> context<str>"
+        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> para<y/n> context<str>"
         echo "Exmaple. ./run.sh run-batch-simple-model 15 5 100 3 1 20 0 500 32 0.25 y default"
         exit 1
     fi
@@ -389,7 +417,7 @@ function run_batch_simple_model {
     num_star=$5
     proc_mean=$6
     proc_std=$7
-    square_len=$8
+    topo_type=$8
     num_epoch=$9
     churn_rate=${10}
     use_para=${11}
@@ -397,6 +425,8 @@ function run_batch_simple_model {
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
     #rm -rf output-simple/${context}-context-summary
     #mkdir output-simple/${context}-context
+    square_len=500
+    
 
     rm -rf output-simple/${context}-context-summary
     mkdir output-simple/${context}-context-summary
@@ -406,8 +436,16 @@ function run_batch_simple_model {
     if [ ${use_para} = 'y' ]; then 
         for seed in $(seq ${start_seed} ${end_seed} ); do
             echo $seed
-            name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
-            gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+            name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
+            if [ ${topo_type} = 'real' ]; then
+                gen_real_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
+            elif [ ${topo_type} = 'rand']; then
+                gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+            else
+                echo "Unknown topo-type ${topo_type}"
+                exit 1
+            fi
+            
             run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} ${churn_rate} n ${context}-context &
             pids="$pids $!"
             names="$names $name"
@@ -419,8 +457,16 @@ function run_batch_simple_model {
     else
         for seed in $(seq ${start_seed} ${end_seed} ); do
             echo $seed
-            name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
-            gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+            name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
+            if [ ${topo_type} = 'real' ]; then
+                gen_real_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
+            elif [ ${topo_type} = 'rand']; then
+                gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+            else
+                echo "Unknown topo-type ${topo_type}"
+                exit 1
+            fi
+
             run_simple_model ${seed} topo/${name}.json ${num_star} ${num_epoch} ${churn_rate} ${context}-context n
             names="$names $name"
         done
@@ -477,17 +523,6 @@ function replot_dir {
         pids="$pids $!"
     done
 
-
-    #for seed in $(seq ${start_seed} ${end_seed} ); do
-        #filename="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed-${num_star}stars"
-        #names="$names $filename"
-        #topo_name="rand-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${square_len}len-${seed}seed"
-        #topo_json="${context}/$filename/${topo_name}.json"
-        #python ./script/plot_dists.py ${context}/${filename}/${filename} ${topo_json} ${record_round} &
-        #pids="$pids $!"
-        #python ./script/plot_single.py ${context}/${filename} ${topo_json} ${x_cent} $unit ${record_round} &
-        #pids="$pids $!"
-    #done 
 
     for pid in $pids; do
         wait $pid
@@ -647,7 +682,7 @@ function run_simple_model {
 subcommand=$1
 case $subcommand in
     help)
-        echo "./run.sh subcommand[run-mc/run-2hop/gen-rand-topo/gen-datacenter/compare/run-simple-model/run-batch-simple-model/run-batch-2hop/compare-batch/replot-batch]" ;;
+        echo "./run.sh subcommand[run-mc/run-2hop/gen-rand-topo/gen-real-topo/gen-datacenter/compare/run-simple-model/run-batch-simple-model/run-batch-2hop/compare-batch/replot-batch]" ;;
     run)
         run $@ ;;
     run-mc)
@@ -662,6 +697,8 @@ case $subcommand in
         run_batch_simple_model ${@:2};;
     gen-rand-topo)
         gen_rand_topo ${@:2} ;;
+    gen-real-topo)
+        gen_real_topo ${@:2} ;;
     gen-datacenter)
         gen_datacenter $@ ;;
     compare-batch)

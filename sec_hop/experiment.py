@@ -171,9 +171,10 @@ class Experiment:
             else:
                 j = path[1]
                 topo_length = length - self.proc_delay[j]/2.0 + self.proc_delay[m]/2.0
-                line_len = (math.sqrt(
-                    (self.loc[star_i][0]-self.loc[m][0])**2+
-                    (self.loc[star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
+                line_len = self.ld[star_i][m] + self.proc_delay[m]
+                # line_len = (math.sqrt(
+                    # (self.loc[star_i][0]-self.loc[m][0])**2+
+                    # (self.loc[star_i][1]-self.loc[m][1])**2 ) +self.proc_delay[m])
 
             dists[m] = (j, round(topo_length, 3), round(line_len, 3))
         self.dists_hist[star_i].append((epoch, dists))

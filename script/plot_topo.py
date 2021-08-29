@@ -10,7 +10,8 @@ def plot_topology(infile, ax, interested):
         data = json.load(f)
         nodes = data['nodes']
         summary = data['summary']
-    square_len = int(summary['square_length'])
+        topo_type = summary['topo_type']
+    # square_len = int(summary['square_length'])
     x_list = []
     y_list = []
     names = []
@@ -58,8 +59,16 @@ def plot_topology(infile, ax, interested):
     ax.scatter(pub_x, pub_y, s=pub_delay_list, color='red')
     ax.scatter(int_x, int_y, s=int_delay_list, color='orange')
 
-    ax.set_xlim(0, square_len)
-    ax.set_ylim(0, square_len)
+    if topo_type == 'rand':
+        square_len = int(summary['square_length'])
+        ax.set_xlim(0, square_len)
+        ax.set_ylim(0, square_len)
+    elif topo_type == 'real':
+        ax.set_xlim(-180, 180)
+        ax.set_ylim(-90, 90)
+    else:
+        print('Unknown topo type', topo_type)
+
 
     for i in range(len(nodes)):
         ax.annotate(names[i], (x_list[i], y_list[i]))

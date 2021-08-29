@@ -144,7 +144,7 @@ class SubsetExploiter:
                         peer_contributors[b][con] = occurance
                         # not the following, does not encourage many high coverage, may due to close 
                         # coverage_rank += occurance
-                    coverage_rank += occurance
+                    coverage_rank += len(plus_cover) * occurance
 
 
             subset_coverage_size[comb] = len(peer_contributors) # simplest by coverage

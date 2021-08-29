@@ -17,7 +17,6 @@ class DepletingPool:
         if self.dead_loop_breaker > 2:
             print('called get_exploring_peers more than 2. Cannot explore new peers even in a whole pool', self.dead_loop_breaker)
             # sys.exit(1)
-
         for p in curr_peers + keep_peers:
             self.hist_explored_peers[p] = self.counter
         pools = self.known_peers
@@ -63,6 +62,27 @@ class DepletingPool:
             self.counter += 1
             self.dead_loop_breaker = 0
             return explores + new_pool_explore
+
+class RandomExplorer:
+    def __init__(self, i, known_peers, log):
+        self.id = i
+        self.known_peers = set(known_peers)
+        self.log = log
+
+    def get_exploring_peers(self, curr_peers, keep_peers, num_explore, oracle):
+        pools = self.known_peers
+        cands = list(pools.difference(curr_peers))
+        explores = []
+        for i in np.random.permutation(cands):
+            if len(oracle.can_i_connect(self.id, [i])) == 0:
+                explores.append(i)
+            if num_explore == len(explores):
+                break
+        if num_explore != len(explores):
+            print('cannot find sufficient random nodes')
+            sys.exit(1)
+        return explores
+
 
 class GreedyExplorer:
     def __init__(self, node_id):
