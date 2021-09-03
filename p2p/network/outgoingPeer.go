@@ -1,7 +1,7 @@
 package network
 
 import (
-	//"fmt"
+    "fmt"
 	"net"
 	"encoding/gob"
 	"github.com/bx3/goldfish/p2p/protocol"
@@ -16,9 +16,10 @@ type OutgoingPeer struct{
 	dec *gob.Decoder
 	incoming chan protocol.Message
 	sendQueue chan protocol.Message
+    control chan protocol.Signal
 }
 
-func NewOutgoingPeer(id int, peerID int, conn net.Conn, incoming chan protocol.Message) *OutgoingPeer {
+func NewOutgoingPeer(id int, peerID int, conn net.Conn, incoming chan protocol.Message, control chan protocol.Signal) *OutgoingPeer {
 	enc := gob.NewEncoder(conn)
 	dec := gob.NewDecoder(conn)
 	return &OutgoingPeer {
@@ -29,6 +30,7 @@ func NewOutgoingPeer(id int, peerID int, conn net.Conn, incoming chan protocol.M
 		dec: dec,
 		incoming: incoming,
 		sendQueue: make(chan protocol.Message),
+        control: control,
 	}
 }
 
@@ -40,17 +42,19 @@ func (p *OutgoingPeer) initConn() {
 	p.sendQueue <- initMsg
 }
 
+func (p *OutgoingPeer) disconnect() {
+    p.conn.Close()
+}
+
 func (p *OutgoingPeer) connect() {
 	go func(p *OutgoingPeer) {
-		for {
-			for msg := range p.sendQueue {
-				//fmt.Println("Ou", p.localID, "->", p.peerID, "Init", msg.IsInit, "From", msg.Src, "to", msg.Dst)
-				err := p.enc.Encode(msg)
-				if err != nil {
-					log.Fatal(err)
-				}
-			}
-		}
+        for msg := range p.sendQueue {
+            err := p.enc.Encode(msg)
+            if err != nil {
+                log.Fatal(err)
+            }
+        }
+        p.conn.Close()
 	}(p)
 
 	go func(p *OutgoingPeer) {
@@ -58,7 +62,8 @@ func (p *OutgoingPeer) connect() {
 			var msg protocol.Message
 			err := p.dec.Decode(&msg)
 			if err != nil {
-				log.Fatal(err)
+                fmt.Println(p.localID, "<-", p.peerID, " outgoing sender ends close")
+                break
 			}
 
 			if p.peerID == -1 {

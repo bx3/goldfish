@@ -5,8 +5,8 @@ import (
 	"net"
 	"log"
 	"time"
+    "sync"
 	"github.com/bx3/goldfish/p2p/protocol"
-	"github.com/bx3/goldfish/p2p/app"
 )
 
 type Server struct{
@@ -15,72 +15,71 @@ type Server struct{
 	incoming chan protocol.Message
 	newIncomingPeer chan *IncomingPeer
 	newOutgoingPeer chan *OutgoingPeer
-	scheduler chan protocol.Message
+	control chan protocol.Signal
 	goldfish *protocol.Goldfish
-	pub *app.Publisher
 	outgoingPeers map[int](*OutgoingPeer)
 	incomingPeers map[int](*IncomingPeer)
-	addrToID map[string]int
+	IdToAddr map[int]string
 	numOut int
 	numIn int
+    mu sync.Mutex
 }
 
 func (server *Server) listen(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
-		if len(server.incomingPeers) >= server.numIn {
-			conn.Close()
-			continue
-		}
+		//if len(server.incomingPeers) >= server.numIn {
+			//conn.Close()
+			//continue
+		//}
 
 		if err != nil {
 			log.Fatal(err)
 		}
-		server.newIncomingPeer <- NewIncomingPeer(server.id, conn, server.incoming)
+		server.newIncomingPeer <- NewIncomingPeer(server.id, conn, server.incoming, server.control)
 	}
 }
 
-func (server *Server) lookup(addr string) int {
-	id, prs := server.addrToID[addr]
-	if !prs {
-		log.Fatal(addr, "not present in map")
-	}
-	return id
-}
+//func (server *Server) lookup(addr string) int {
+	//id, prs := server.addrToID[addr]
+	//if !prs {
+		//log.Fatal(addr, "not present in map")
+	//}
+	//return id
+//}
 
-func (server *Server) Connect(id int, addr string) {
+func (s *Server) Connect(id int, addr string) {
 	go func() {
 		for {
-			if len(server.outgoingPeers) >= server.numOut {
-				log.Fatal("Cannot Add more outgoing conn, curr lim", server.numOut)
-			}
+			//if len(s.outgoingPeers) >= s.numOut {
+				//log.Fatal("Cannot Add more outgoing conn, curr lim", s.numOut)
+			//}
 
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
 				time.Sleep(50 * time.Millisecond)
-				fmt.Println(server.id, "failed to connect", id, "retry in 50 ms")
+				fmt.Println(s.id, "failed to connect", id, "retry in 50 ms")
 			} else {
-				server.newOutgoingPeer <- NewOutgoingPeer(server.id, id, conn, server.incoming)
+				s.newOutgoingPeer <- NewOutgoingPeer(s.id, id, conn, s.incoming, s.control)
 				break
 			}
 		}
 	}()
 }
 
-func StartServer(id int, addr string, numOut int, numIn int, addrToID map[string]int, goldfish *protocol.Goldfish, pub *app.Publisher) (server *Server) {
+func StartServer(id int, addr string, numOut int, numIn int, idToAddr map[int]string, goldfish *protocol.Goldfish, control chan protocol.Signal) (server *Server) {
 	fmt.Println("start")
 	server = &Server {
 		addr: addr,
 		id: id,
-		incoming: make(chan protocol.Message),
+		incoming: make(chan protocol.Message, 40),
 		newIncomingPeer: make(chan *IncomingPeer, 40),
 		newOutgoingPeer: make(chan *OutgoingPeer, 40),
-		scheduler: make(chan protocol.Message),
+		control: control,
 		goldfish: goldfish,
-		pub: pub,
 		outgoingPeers: make(map[int](*OutgoingPeer)),
 		incomingPeers: make(map[int](*IncomingPeer)),
-		addrToID: addrToID,
+		IdToAddr: idToAddr,
 		numOut: numOut,
 		numIn: numIn,
 	}
@@ -98,15 +97,28 @@ func StartServer(id int, addr string, numOut int, numIn int, addrToID map[string
 			select {
 			case p := <-server.newIncomingPeer:
 				p.handle()
+				fmt.Println(server.id, "Managing new incoming peers", p.peerID)
+                server.mu.Lock()
 				server.incomingPeers[p.peerID] = p
+                server.mu.Unlock()
 			case p := <-server.newOutgoingPeer:
-				fmt.Println("Managing new peers")
+				fmt.Println(server.id, "Managing new outgoing peers", p.peerID)
 				p.connect()
+                server.mu.Lock()
 				server.outgoingPeers[p.peerID] = p
+                server.mu.Unlock()
+
 				p.initConn()
-			case m := <-server.scheduler:
+            case signal := <-server.control:
 				// Dispatch the message to outgoing peers
-				server.outgoingPeers[m.Dst].sendQueue <- m
+                if signal.Disconnected {
+                    server.mu.Lock()
+                    delete(server.incomingPeers, signal.DisconnectedPeerID)
+                    server.mu.Unlock()
+                }
+                if signal.AdaptTopo {
+                    server.AdaptTopo(signal.Explores, signal.Exploits)
+                }
 			}
 		}
 	}()
@@ -120,6 +132,8 @@ func StartServer(id int, addr string, numOut int, numIn int, addrToID map[string
 			outMsgs := goldfish.Recv(m, direction)
 			for _, msg := range outMsgs {
 				dst := msg.Dst
+
+                server.mu.Lock()
 				out_p, prs := server.outgoingPeers[dst]
 				if prs {
 					out_p.sendQueue <- msg
@@ -130,31 +144,62 @@ func StartServer(id int, addr string, numOut int, numIn int, addrToID map[string
 					}
 					in_p.sendQueue <- msg
 				}
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(2000 * time.Millisecond)
-	done := make(chan bool)
-	go func() {
-		// do our own things
-		time.Sleep(1000 * time.Millisecond)
-		for {
-			select {
-			case <-ticker.C:
-				ok, msg := server.pub.Publish()
-				if ok {
-					fmt.Println(server.id, "Publish\n")
-					server.Broadcast(msg)
-				}
-			case <-done:
-				fmt.Println("done generating source msg")
-				return
+                server.mu.Unlock()
 			}
 		}
 	}()
 
 	return server
+}
+
+func (s *Server) AdaptTopo(explores, exploits []int) {
+    //is_run, explores, exploits := s.goldfish.RunGoldfishCore()
+    // modify connections
+    fmt.Println(s.id, "exploit", exploits, "explores", explores)
+
+    s.mu.Lock()
+    disconnects := make([]int, 0)
+    for peer, _ := range s.outgoingPeers {
+        isFlag := true
+        for _, exploit := range exploits {
+            if peer == exploit {
+                isFlag = false
+            }
+        }
+        if isFlag {
+            disconnects = append(disconnects, peer)
+        }
+    }
+
+    for _, peer := range exploits {
+        _, prs := s.outgoingPeers[peer]
+        if !prs {
+            addr, addrPrs := s.IdToAddr[peer]
+            if !addrPrs {
+                log.Fatal(s.id, "does not know address for exploit peer", peer)
+            }
+            s.Connect(peer, addr)
+            fmt.Println(s.id, "exploit->", peer, "addr", addr)
+        }
+    }
+
+    for _, disconnect := range disconnects {
+        fmt.Println(s.id, "disconnect", disconnect)
+        outgoingPeer, _ := s.outgoingPeers[disconnect]
+        close(outgoingPeer.sendQueue)
+        delete(s.outgoingPeers, disconnect)
+    }
+
+    for _, peer := range explores {
+        addr, prs := s.IdToAddr[peer]
+        if !prs {
+            log.Fatal(s.id, "does not know address for explore peer", peer)
+        }
+        fmt.Println(s.id, "explore", peer, "addr", addr)
+        s.Connect(peer, addr)
+    }
+    s.goldfish.ResetRunning()
+    s.mu.Unlock()
 }
 
 func (server *Server) GetSrcDirection(msg protocol.Message) protocol.Direction {
@@ -202,6 +247,7 @@ func (server *Server) GetConns() []protocol.Conn {
 func (server *Server) Broadcast(msg protocol.Message) {
 	sent := make([]int, 0)
 
+    server.mu.Lock()
 	for _, peer := range server.outgoingPeers {
 		peerMsg := msg
 		peerMsg.Src = server.id
@@ -221,6 +267,10 @@ func (server *Server) Broadcast(msg protocol.Message) {
 			peerMsg.Src = server.id
 			peerMsg.Dst = peer.peerID
 			peer.sendQueue <- peerMsg
+            sent = append(sent, peer.peerID)
 		}
 	}
+    server.mu.Unlock()
+    fmt.Println(server.id, "B->", sent)
+
 }

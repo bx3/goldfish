@@ -22,20 +22,26 @@ type ServerConfig struct {
 type ServerID struct {
 	Id int `json:"id"`
 	Addr string `json:"addr"`
-	Rate float32 `json:"rate"`
-	//Proc int `json:"proc"`
+	Prob float32 `json:"prob"`
+    Adapt bool `json:"adapt"`
 }
 
 func run(args []string) {
-	if len(args) != 5 {
-		fmt.Println("./main run configFile<str> numOut<int> numIn<int> numMsg<int> numEpoch<int>")
+	if len(args) != 7 {
+		fmt.Println("./main run configFile<str> numOut<int> numIn<int> numRand<int> numMsg<int> numEpoch<int> rate-per-sec<int>")
+        fmt.Println(args)
 		os.Exit(1)
 	}
 	configFile := args[0]
 	numOut, _ := strconv.Atoi(args[1])
 	numIn, _ := strconv.Atoi(args[2])
-	numMsg, _ := strconv.Atoi(args[3])
-	numEpoch, _ := strconv.Atoi(args[4])
+    numRand, _ := strconv.Atoi(args[3])
+	numMsg, _ := strconv.Atoi(args[4])
+	numEpoch, _ := strconv.Atoi(args[5])
+    rate, _ := strconv.Atoi(args[6])
+
+    updateInterval := 1
+    numTopo := 2
 
 	jsonFile, err := os.Open(configFile)
 	if err != nil {
@@ -45,7 +51,6 @@ func run(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(string(data))
 
 	config := &ServerConfig{}
 	err = json.Unmarshal([]byte(data), config)
@@ -53,17 +58,18 @@ func run(args []string) {
 		log.Fatal(err)
 	}
 
-	addrToId := make(map[string]int)
+	idToAddr := make(map[int]string)
 	for _, peer := range config.Peers {
-		addrToId[peer.Addr] = peer.Id
+		idToAddr[peer.Id] = peer.Addr
 	}
 
-	pub := app.NewPublisher(config.Local.Rate, config.Local.Id, numEpoch, numMsg)
-	goldfish := protocol.NewGoldfish(config.Local.Id, numOut, numIn, numMsg, numEpoch)
-	server := network.StartServer(config.Local.Id, config.Local.Addr, numOut, numIn, addrToId, goldfish, pub)
+    control := make(chan protocol.Signal)
+
+	goldfish := protocol.NewGoldfish(configFile, config.Local.Adapt, config.Local.Id, numOut, numIn, numRand, numMsg, numEpoch, updateInterval, numTopo, control)
+	server := network.StartServer(config.Local.Id, config.Local.Addr, numOut, numIn, idToAddr, goldfish, control)
+    pub := app.NewPublisher(config.Local.Id, config.Local.Prob, rate, config.Local.Id, numEpoch, numMsg, server)
 
 	conns := make([]int, numOut)
-	//gen := rand.New(rand.NewSource(time.Now().UnixNano()))
 	gen := rand.New(rand.NewSource(int64(config.Local.Id)))
 	for i, p := range gen.Perm(len(config.Peers)) {
 		if i < numOut {
@@ -74,7 +80,8 @@ func run(args []string) {
 			break
 		}
 	}
-	fmt.Println(config.Local.Id, " connects to ", conns)
+    fmt.Println(config.Local.Id, "->", conns)
+    pub.Run()
 	select{}
 }
 
