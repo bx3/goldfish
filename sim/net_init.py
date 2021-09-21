@@ -34,6 +34,7 @@ def load_network(json_file):
         proc_delay = {}
         loc = {}
         role = {}
+        pub_prob = {}
         for node in nodes:
             i = node['id']
             adj = node['adj']
@@ -43,7 +44,10 @@ def load_network(json_file):
             loc[i] = (x,y)
             ld[i] = adj
             role[i] = node["role"]
-        return loc, ld , role, proc_delay
+            pub_prob[i] = float(node["pub_prob"])
+            if role[i] == 'PUB':
+                assert(pub_prob[i] > 0)
+        return loc, ld , role, proc_delay, pub_prob
 
 def construct_graph_by_outs_conns(outs_conns, nd, ld):
     G = nx.Graph()

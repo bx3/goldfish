@@ -45,7 +45,13 @@ class NetworkSim:
         self.ld = None
         self.proc_delay = None
         self.roles = None
-        self.loc, self.ld, self.roles, self.proc_delay = load_network(topo)
+        self.loc, self.ld, self.roles, self.proc_delay, self.pub_prob = load_network(topo)
+    
+        s = 0
+        for k,v in self.pub_prob.items():
+            # if self.roles[k] == 'PUB':
+            s += v
+        print('publishing prob summation', s)
 
         self.num_out = num_out
         self.num_in = num_in
@@ -65,7 +71,10 @@ class NetworkSim:
         self.oracle = SimpleOracle(num_in, num_out, self.num_node)
         self.out_hist = []
 
-        self.pubs = [k for k,v in self.roles.items() if v=='PUB']
+        # self.pubs = [k for k,v in self.roles.items() if v=='PUB']
+
+
+
         self.pub_hist = []
         self.sparse_tables = {i: SparseTable(i) for i in range(self.num_node)}
 
@@ -163,8 +172,15 @@ class NetworkSim:
         time_tables = {i:defaultdict(list) for i in range(self.num_node)}
         abs_time_tables = {i:defaultdict(list) for i in range(self.num_node)}
         broads = []
+
+        pubs = []
+        probs = []
+        for k, v in self.pub_prob.items():
+            pubs.append(k)
+            probs.append(v)
+
         for _ in range(num_msg):
-            p = random.choice(self.pubs)
+            p = np.random.choice(pubs, size=1, replace=False, p=probs)[0]
             self.pub_hist.append(p)
             broads.append(p)
 
@@ -188,8 +204,6 @@ class NetworkSim:
         
     def run_mc(self, i, curr_out, e):
         slots = self.sparse_tables[i].table[-self.T:]
-        print(slots)
-        sys.exit(1)
         incomplete_table,M,nM,max_time,ids,ids_direct = construct_table(slots, i, self.table_directions)
         topo_directions = formatter.get_topo_direction(slots, self.table_directions, self.num_topo)
 
@@ -246,17 +260,22 @@ class NetworkSim:
                 graph_json.append(peer)
             json.dump(graph_json, w, indent=4)
 
-    def write_epoch_graph(self, e):
+    def write_epoch_graph(self, e, curr_outs):
         filename = os.path.join(self.epoch_graph_dir, 'epoch'+str(e)+'.json')
         with open(filename, 'w') as w:
             graph_json = []
             for u in range(self.num_node):
                 node = self.nodes[u]
-                outs = sorted([int(i) for i in node.outs])
+                # outs = sorted([int(i) for i in node.outs])
+                num_exploit = self.num_out - self.num_rand
+                exploits = curr_outs[u][:num_exploit]
+                explores = curr_outs[u][num_exploit:]
+                assert(len(node.outs.difference(curr_outs[u])) == 0)
                 ins = sorted([int(i) for i in node.ins])
                 peer = {
                     'node': int(u),
-                    'outs': outs,
+                    'exploits': [int(i) for i in exploits],
+                    'explores': [int(i) for i in explores],
                     'ins': ins
                     }
                 graph_json.append(peer)
@@ -320,7 +339,9 @@ class NetworkSim:
                         G.add_edge(i, u, weight=delay)
         dists = {} # key is the target pub, value is the best peer and length
         formatter.printt('\tEval peers {}\n'.format(interested_peers), self.log_files[star_i])
-        for m in self.pubs:
+
+        pubs = [k for k,v in self.roles.items() if v=='PUB']
+        for m in pubs:
             # the closest distance
             start_t = time.time()
             length, path = nx.single_source_dijkstra(G, source=star_i, target=m, weight='weight')
@@ -409,7 +430,7 @@ class NetworkSim:
         for e in range(self.num_epoch):
             self.log_epoch(e, curr_outs, churn_stars)
             self.take_snapshot(e, curr_outs)
-            self.write_epoch_graph(e)
+            self.write_epoch_graph(e, curr_outs)
             self.oracle.check(curr_outs)
             ps = self.broadcast_msgs(num_msg)
 

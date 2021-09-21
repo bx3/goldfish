@@ -2,7 +2,7 @@
 trap kill_procs INT
 
 default_num_record=7
-default_unit='pub'
+default_unit='hash'
 default_cent=90
 default_snapshot_dir='snapshots-exploit'
 
@@ -79,7 +79,7 @@ function run_command {
 
     #run_command "${plot_cmd}"
     #echo "Run ->"
-    #echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/${dirpath}/latest.png ."
+    #echo "scp turing:/home/bowen/system-network/goldfish/sim/${dirpath}/latest.png ."
 #}
 
 
@@ -138,45 +138,47 @@ function run_2hop {
 
     echo "Run ->"
     echo "vim output-2hop/$context/${filename}/log.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/$context/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/output-2hop/$context/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/output-2hop/$context/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-2hop/$context/${filename}/command.txt"
 }
 
 function gen_real_topo {
-    if [ $# -ne 6 ]; then 
-        echo "./run.sh gen-real-topo num_node<int> num_pub<int> name<str> proc_mean<float> proc_std<float> seed<int>"
+    if [ $# -ne 7 ]; then 
+        echo "./run.sh gen-real-topo num_node<int> dist<unif/exp/real>  num_pub<int> name<str> proc_mean<float> proc_std<float> seed<int>"
         exit 0
     fi
     num_node=$1
     num_pub=$2
-    name=$3
-    proc_mean=$4
-    proc_std=$5
-    seed=$6
+    dist=$3
+    name=$4
+    proc_mean=$5
+    proc_std=$6
+    seed=$7
     server_meta='inputs/servers-2020-07-19.csv'
     ping_data='inputs/pings-2020-07-19-2020-07-20.csv'
     ./script/gen-real-topo.py ${server_meta} ${ping_data} $@ > ./topo/${name}.json
 }
 
 function gen_rand_topo {
-    if [ $# -ne 7 ]; then
-        echo "./run.sh gen-rand-topo num_node<int> num_pub<int> name<str> proc_mean<float> proc_std<float> square_len<int> seed<int>"
+    if [ $# -ne 8 ]; then
+        echo "./run.sh gen-rand-topo num_node<int> num_pub<int> distribution<unif/exp> name<str> proc_mean<float> proc_std<float> square_len<int> seed<int>"
         exit 1
     fi
     num_node=$1
     num_pub=$2
-    name=$3
-    proc_mean=$4
-    proc_std=$5
-    square_len=$6
-    seed=$7
+    distribution=$3
+    name=$4
+    proc_mean=$5
+    proc_std=$6
+    square_len=$7
+    seed=$8
 
-    ./script/gen-rand-topo.py ${num_node} ${num_pub} ${proc_mean} ${proc_std} ${square_len} ${seed} > ./topo/${name}.json
+    ./script/gen-rand-topo.py ${num_node} ${num_pub} ${distribution} ${proc_mean} ${proc_std} ${square_len} ${seed} > ./topo/${name}.json
     ./script/plot_topo.py ./topo/${name}.json ./topo/${name} 0
     echo "finish plot"
 
     echo "Run ->"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/topo/${name}.png . && open ${name}.png"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/topo/${name}.png . && open ${name}.png"
 }
 
 function gen_datacenter {
@@ -198,12 +200,12 @@ function gen_datacenter {
     ./script/gen-datacenter.py ${use_single} ${num_center} ${num_node_per_center} ${num_pub_per_center} ${dis_among_center} ${center_std} ${proc_delay_mean} ${proc_delay_std} > ./topo/${name}.json
     ./script/plot_topo.py ./topo/${name}.json ./topo/${name} 0
     echo "Run ->"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/topo/${name}.png . && open ${name}.png"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/topo/${name}.png . && open ${name}.png"
 }
 
 function compare_batch {
     if [ $# -lt 12 ]; then
-        echo "./run.sh compare-batch x-percent<int0-100> percent-unit<node/hash> batch1<str> batch2<str> start_seed<int> num_seed<int> num_node<int> num_pub<int> num_star<int> snapshots_dir<snapshots/snapshots-exploit> topo_type<real/rand> epochs<int list>"
+        echo "./run.sh compare-batch x-percent<int0-100> percent-unit<node/pub/hash> batch1<str> batch2<str> start_seed<int> num_seed<int> num_node<int> num_pub<int> num_star<int> snapshots_dir<snapshots/snapshots-exploit> topo_type<real/rand> epochs<int list>"
         echo "Example. ./run.sh compare-batch 90 pub output-simple/ output-2hop/ 15 15 100 3 1 snapshots-exploit 0 2 4 8 16 31" 
         exit 1
     fi
@@ -246,7 +248,7 @@ function compare_batch {
         topo_json="${simple_path}/${setup_name}.json"
 
         figname="output-compare/${compare_name}/${name}"
-        compare ${x_cent} pub $figname ${simple_model_path} ${sec_hop_path} ${topo_json} ${snapshots_dir} ${record_epochs} &
+        compare ${x_cent} ${unit} $figname ${simple_model_path} ${sec_hop_path} ${topo_json} ${snapshots_dir} ${record_epochs} &
         pids="$pids $!"
     done
 
@@ -254,7 +256,7 @@ function compare_batch {
         wait $pid
     done
     
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-compare/${compare_name} ."
+    echo "scp -r turing:/home/bowen/system-network/goldfish/sim/output-compare/${compare_name} ."
 }
 
 function check_init_setup {
@@ -349,9 +351,9 @@ function compare {
 }
 
 function run_batch_2hop {
-    if [ $# -ne 11 ]; then
-        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> num_adapt<int> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> context<str>"
-        echo "Exmaple. ./run.sh run-batch-2hop 15 15 100 3 1 20 0 500 32 0.25 default"
+    if [ $# -ne 12 ]; then
+        echo "./run.sh run-batch-2hop start_seed<int> num_topo<int> num_node<int> num_pub<int> dist<unif/exp> num_adapt<int> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> context<str>"
+        echo "Exmaple. ./run.sh run-batch-2hop 15 15 100 3 1 unif 20 0 rand 500 0.25 default"
         exit 1
     fi
     start_seed=$1
@@ -359,12 +361,13 @@ function run_batch_2hop {
     num_node=$3
     num_pub=$4
     num_adapt=$5
-    proc_mean=$6
-    proc_std=$7
-    topo_type=$8
-    num_epoch=$9
-    churn_rate=${10}
-    context=${11}
+    dist=$6
+    proc_mean=$7
+    proc_std=$8
+    topo_type=$9
+    num_epoch=${10}
+    churn_rate=${11}
+    context=${12}
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
     rm -rf output-2hop/${context}-context-summary
     mkdir output-2hop/${context}-context-summary
@@ -375,7 +378,9 @@ function run_batch_2hop {
     names=""
     for seed in $(seq ${start_seed} ${end_seed} ); do
         echo $seed
-        name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
+        #name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
+        name="${topo_type}-${num_node}node-${num_pub}pub-${dist}-${proc_mean}_${proc_std}proc-${seed}seed"
+
         if [[ -f "topo/$name.json" ]]; then 
             run_2hop $seed topo/${name}.json ${num_epoch} ${num_adapt} ${churn_rate} ${context}-context &
             pids="$pids $!"
@@ -399,14 +404,14 @@ function run_batch_2hop {
 
 
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-2hop/${context}-context-summary . && open ${context}-context-summary/*"
+    echo "scp -r turing:/home/bowen/system-network/goldfish/sim/output-2hop/${context}-context-summary . && open ${context}-context-summary/*"
 
 }
 
 function run_batch_simple_model {
-    if [ $# -ne 12 ]; then
-        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> para<y/n> context<str>"
-        echo "Exmaple. ./run.sh run-batch-simple-model 15 5 100 3 1 20 0 500 32 0.25 y default"
+    if [ $# -ne 13 ]; then
+        echo "./run.sh run-batch-simple-model start_seed<int> num_topo<int> num_node<int> num_pub<int> num_star<int> dist<unif/exp/real> proc_mean<float> proc_std<float> topo_type<real/rand> num_epoch<int> churn_rate<float> para<y/n> context<str>"
+        echo "Exmaple. ./run.sh run-batch-simple-model 15 5 100 3 1 exp 20 0 500 32 0.25 y default"
         exit 1
     fi
    
@@ -415,13 +420,14 @@ function run_batch_simple_model {
     num_node=$3
     num_pub=$4
     num_star=$5
-    proc_mean=$6
-    proc_std=$7
-    topo_type=$8
-    num_epoch=$9
-    churn_rate=${10}
-    use_para=${11}
-    context=${12}
+    dist=$6
+    proc_mean=$7
+    proc_std=$8
+    topo_type=$9
+    num_epoch=${10}
+    churn_rate=${11}
+    use_para=${12}
+    context=${13}
     end_seed=$(( ${start_seed} + ${num_topo} - 1 ))
     #rm -rf output-simple/${context}-context-summary
     #mkdir output-simple/${context}-context
@@ -436,11 +442,11 @@ function run_batch_simple_model {
     if [ ${use_para} = 'y' ]; then 
         for seed in $(seq ${start_seed} ${end_seed} ); do
             echo $seed
-            name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
+            name="${topo_type}-${num_node}node-${num_pub}pub-${dist}-${proc_mean}_${proc_std}proc-${seed}seed"
             if [ ${topo_type} = 'real' ]; then
-                gen_real_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
-            elif [ ${topo_type} = 'rand']; then
-                gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+                gen_real_topo ${num_node} ${num_pub} ${dist} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
+            elif [ ${topo_type} = 'rand' ]; then
+                gen_rand_topo ${num_node} ${num_pub} ${dist} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
             else
                 echo "Unknown topo-type ${topo_type}"
                 exit 1
@@ -459,9 +465,9 @@ function run_batch_simple_model {
             echo $seed
             name="${topo_type}-${num_node}node-${num_pub}pub-${proc_mean}_${proc_std}proc-${seed}seed"
             if [ ${topo_type} = 'real' ]; then
-                gen_real_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
-            elif [ ${topo_type} = 'rand']; then
-                gen_rand_topo ${num_node} ${num_pub} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
+                gen_real_topo ${num_node} ${num_pub} ${dist} ${name} ${proc_mean} ${proc_std} ${seed} > /dev/null
+            elif [ ${topo_type} = 'rand' ]; then
+                gen_rand_topo ${num_node} ${num_pub} ${dist} ${name} ${proc_mean} ${proc_std} ${square_len} ${seed} > /dev/null
             else
                 echo "Unknown topo-type ${topo_type}"
                 exit 1
@@ -479,7 +485,7 @@ function run_batch_simple_model {
         cp output-simple/${context}-context/${exp_name}/${exp_name}-lat${default_cent}-${default_unit}.png output-simple/${context}-context-summary
         cp output-simple/${context}-context/${exp_name}/cdfs.png output-simple/${context}-context-summary/${exp_name}-cdfs.png
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}-context-summary . && open ${context}-context-summary/*"
+    echo "scp -r turing:/home/bowen/system-network/goldfish/sim/output-simple/${context}-context-summary . && open ${context}-context-summary/*"
 }
 
 function replot_dir {
@@ -535,7 +541,7 @@ function replot_dir {
         #cp ${context}/${name}/${name}-lat${x_cent}-${unit}.png ${context}-summary-replot
         cp ${context}/${name}/cdfs.png ${context}-summary-replot/${name}-cdfs.png
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/${context}-summary-replot ."
+    echo "scp -r turing:/home/bowen/system-network/goldfish/sim/${context}-summary-replot ."
 }
 
 function replot_batch {
@@ -597,7 +603,7 @@ function replot_batch {
         cp ${context}/${name}/${name}.png ${context}-summary-replot
         cp ${context}/${name}/${name}-lat${x_cent}-${unit}.png ${context}-summary-replot
     done
-    echo "scp -r turing:/home/bowen/system-network/perigee-bandit-ml/${context}-summary-replot ."
+    echo "scp -r turing:/home/bowen/system-network/goldfish/sim/${context}-summary-replot ."
 }
 
 function run_simple_model {
@@ -675,8 +681,8 @@ function run_simple_model {
 
     echo "Run ->"
     echo "vim output-simple/${context}/${filename}/log.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
-    echo "scp turing:/home/bowen/system-network/perigee-bandit-ml/output-simple/${context}/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/output-simple/${context}/${filename}/${filename}.png . && open ${filename}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
+    echo "scp turing:/home/bowen/system-network/goldfish/sim/output-simple/${context}/${filename}/${filename}-lat${default_cent}-${default_unit}.png . && open ${filename}-lat${default_cent}-${default_unit}.png" | tee -a "output-simple/${context}/${filename}/command.txt"
 }
 
 subcommand=$1

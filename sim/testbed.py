@@ -258,7 +258,7 @@ def run_2hop():
         num_epoch,
         stars,
         num_msg,
-        churn_rate
+        churn_rate,
         )
     sec_hop_model.run()
 

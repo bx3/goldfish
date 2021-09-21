@@ -61,7 +61,7 @@ def plot_dist(star_i, dists_hist, ax, record_epochs):
     # print(pubs)
     # print(x_peers)
     # print(pubs_dist) 
-    index = pd.Index(x_peers, name='epoch, peers')
+    index = pd.Index(x_peers, name='epoch')
     
     df = pd.DataFrame(pubs_dist, index=index)
     if len(pubs) <= 10:

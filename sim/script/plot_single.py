@@ -24,7 +24,7 @@ if len(sys.argv) < 7:
 out_dir = sys.argv[1]
 topo = sys.argv[2]
 x_percent = sys.argv[3]
-percent_unit = sys.argv[4] # node or hash
+percent_unit = sys.argv[4] 
 snapshots_dir = sys.argv[5]
 epochs = [int(i) for i in sys.argv[6:]]
 

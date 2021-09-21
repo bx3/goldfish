@@ -5,12 +5,10 @@ import pandas as pd
 import numpy as np
 import time
 import json
-from plot_utility import get_exponential_mining_cdf
-
 ServerMeta = namedtuple('ServerMeta', ['id', 'name', 'title', 'location', 'state','country','state_abbv','continent','lat','long'])
 PingData = namedtuple('PingData', ['src', 'dst', 'ts', 'min', 'avg', 'max', 'dev'])
 
-if len(sys.argv) < 10:
+if len(sys.argv) < 9:
     print("Require args. ")
     sys.exit(1)
 
@@ -18,16 +16,11 @@ server_meta_csv = sys.argv[1]
 ping_csv = sys.argv[2]
 num_node = int(sys.argv[3])
 num_pub = int(sys.argv[4])
-dist= sys.argv[5]
-name = sys.argv[6]
-proc_delay_mean = float(sys.argv[7])
-proc_delay_std = float(sys.argv[8])
-seed = int(sys.argv[9])
+name = sys.argv[5]
+proc_delay_mean = float(sys.argv[6])
+proc_delay_std = float(sys.argv[7])
+seed = int(sys.argv[8])
 np.random.seed(seed)
-
-beta = 1
-epsilon = 1.5e4
-
 
 def parse_server_meta(filename):
     data = pd.read_csv(filename)
@@ -114,10 +107,6 @@ for i, missing in sorted_node_missing:
 nodes = sorted(np.random.choice(all_nodes, num_node, replace=False))
 pubs = np.random.choice(nodes, num_pub, replace=False)
 
-
-
-
-
 topo_nodes = []
 
 dataId_to_topoId = {}
@@ -125,23 +114,6 @@ j = 0
 for i in nodes:
     dataId_to_topoId[i] = j
     j += 1
-
-mine_prob = []
-if dist == 'unif':
-    mine_prob = [0 for i in range(num_node)]
-    for p in pubs:
-        topoId = dataId_to_topoId[p]
-        mine_prob[topoId] = 1.0/num_pub
-elif dist == 'exp':
-    exp_prob = get_exponential_mining_cdf(beta, num_pub, epsilon)
-    mine_prob = [0 for i in range(num_node)]
-    for i in range(len(pubs)):
-        p = pubs[i]
-        topoId = dataId_to_topoId[p]
-        mine_prob[topoId] = exp_prob[i]
-else:
-    print("Unknown distribution", distr)
-    sys.exit(1)
 
 for i in nodes:
     adj = []
@@ -159,12 +131,10 @@ for i in nodes:
     if i in pubs:
         role = 'PUB'
     proc_delay = np.random.normal(proc_delay_mean, proc_delay_std)
-    topoId = dataId_to_topoId[i]
     node = {
-        'id': topoId,
+        'id': dataId_to_topoId[i],
         'center': None,
         'role': role,
-        'pub_prob': mine_prob[topoId],
         'x': int(server_meta[i].long),
         'y': int(server_meta[i].lat),
         'proc_delay': proc_delay,

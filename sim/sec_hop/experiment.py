@@ -25,7 +25,7 @@ class Experiment:
         self.num_out = out_lim
         self.outdir = os.path.dirname(name)
 
-        self.loc, self.ld, self.roles, self.proc_delay = load_network(topo)
+        self.loc, self.ld, self.roles, self.proc_delay, self.pub_prob = load_network(topo)
         self.num_node = len(self.loc) 
         self.num_epoch = num_epoch
         self.num_msg = num_msg
@@ -49,7 +49,10 @@ class Experiment:
         # self.broad_nodes = [] # hist of broadcasting node
         # self.timer = time.time()
 
-        self.pubs = [k for k,v in self.roles.items() if v=='PUB']
+        # self.pubs = [k for k,v in self.roles.items() if v=='PUB']
+
+
+
         self.adapts = adapts
         self.pub_hist = []
         self.dists_hist = defaultdict(list)
@@ -155,7 +158,9 @@ class Experiment:
                             sys.exit(1)
                         G.add_edge(i, u, weight=delay)
         dists = {} # key is the target pub, value is the best peer and length
-        for m in self.pubs:
+
+        pubs = [k for k,v in self.roles.items() if v=='PUB']
+        for m in pubs:
             # the closest distance
             length, path = nx.single_source_dijkstra(G, source=star_i, target=m, weight='weight')
             assert(len(path)>=0) 
@@ -221,8 +226,16 @@ class Experiment:
         time_tables = {i:defaultdict(list) for i in range(self.num_node)}
         abs_time_tables = {i:defaultdict(list) for i in range(self.num_node)}
         broads = []
+
+        pubs = []
+        probs = []
+        for k, v in self.pub_prob.items():
+            pubs.append(k)
+            probs.append(v)
+
         for _ in range(num_msg):
-            p = random.choice(self.pubs)
+            # p = random.choice(self.pubs)
+            p = np.random.choice(pubs, size=1, replace=False, p=probs)[0]
             self.pub_hist.append(p)
             broads.append(p)
 

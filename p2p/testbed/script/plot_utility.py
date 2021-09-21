@@ -17,19 +17,7 @@ def plot_lats_cdf(lats_pair, ax, title, line_style):
     ax.plot(x, y, line_style)
     ax.set_title(title)
 
-# epsilon 1.5e-4
-def get_exponential_mining_cdf(beta, num_node, epsilon):
-    domain = int(math.floor(-1 * np.log(epsilon) / beta))
-    steps = [i/float(num_node)*domain for i in range(num_node+1)]
 
-    mine_prob = []
-    for i in range(1, num_node+1):
-        p1 = 1 - np.exp(-1*beta*(steps[i-1])) # cdf
-        p2 = 1 - np.exp(-1*beta*(steps[i]))
-        mine_prob.append(p2-p1)
-    s = sum(mine_prob)
-    mine_prob = [p/s for p in mine_prob]
-    return mine_prob
 
 
 def plot_diff_lats(all_lats, out_dirs, ax, epochs, xlim, title):
@@ -188,42 +176,9 @@ def get_Xcent_pubs(lats, x, pubs):
             lat_x = sorted_pub_lat[int(num_pubs*float(x)/100.0)]
         return lat_x
 
-def get_diff_Xcent_hash(i, lats, x, pubs, proc_delay, ld, pub_prob):
-    diff_lats = {}
-    for m, lat in lats.items():
-        if i != m:
-            line_len = ld[i][m] + proc_delay[m]
-            diff_lats[m] = lat - line_len
-        else:
-            diff_lats[i] = 0
-
-    x_lat = None
-    if x == 'avg':
-        weight_lat = 0
-        for m, lat in diff_lats.items():
-            weight_lat += lat * pub_prob[m]
-        x_lat = weight_lat
-    else:
-        sorted_lats_pair = sorted(diff_lats.items(), key=lambda item: item[1])
-        # sorted_pub_lat = [lat for i, lat in sorted_lats_pair if i in pubs]
-        # num_pubs = float(len(sorted_pub_lat))
-        assert(float(x) >= 0 and float(x) <= 100)
-        acc_prob = 0
-        for i, lat in sorted_lats_pair:
-            acc_prob += pub_prob[i]
-            if acc_prob > float(x)/100.0:
-                x_lat = lat
-                break
-        
-        if x_lat == None:
-            print(acc_prob)
-            print('Error. Cannot get latency')
-            sys.exit(1)
-        
-    return x_lat 
-
-
 def get_diff_Xcent_pubs(i, lats, x, pubs, proc_delay, ld):
+
+
     diff_lats = {}
     for m, lat in lats.items():
         if i != m:
@@ -257,25 +212,17 @@ def get_topo_loc_delay(topo_json):
     loc = {}
     proc_delay = {}
     ld = {}
-    pub_prob = {}
     with open(topo_json) as config:
         data = json.load(config)
         nodes = data['nodes']
         summary = data['summary']
         num_node = summary['num_node']
-        num_pub = summary['num_pub']
         for node in nodes:
             loc[node['id']] = (node['x'], node['y'])
             proc_delay[node['id']] = float(node['proc_delay'])
             ld[node['id']] = node['adj']
 
-            if 'pub_prob' not in node:
-                print('old topo json file, assuming all pub unif')
-                pub_prob[node['id']] = 1.0/ num_pub
-            else:
-                pub_prob[node['id']] = node['pub_prob']
-
-    return loc, proc_delay, ld, pub_prob
+    return loc, proc_delay, ld
 
 
 
@@ -308,7 +255,7 @@ def parse_adapt(filename):
 def parse_file(filename, x, topo, percent_unit):
     latency = []
     num_pub, pubs = parse_topo(topo)
-    loc, proc_delay, ld, pub_prob = get_topo_loc_delay(topo)
+    loc, proc_delay, ld = get_topo_loc_delay(topo)
     with open(filename) as f:
         node_i = 0
         for line in f:
@@ -327,7 +274,8 @@ def parse_file(filename, x, topo, percent_unit):
                 # lat_x = get_Xcent_pubs(node_lat, x, pubs)
                 lat_x = get_diff_Xcent_pubs(node_i, node_lat, x, pubs, proc_delay, ld)
             elif percent_unit == 'hash':
-                lat_x = get_diff_Xcent_hash(node_i, node_lat, x, pubs, proc_delay, ld, pub_prob)
+                print('Not implemented. topo json file needs hash')
+                sys.exit(1)
             else:
                 print('Unknown percent unit', percent_unit)
                 sys.exit(1)
@@ -341,7 +289,7 @@ def sort_lats_to_pubs(lats, pubs):
     return sorted_lats_pair
 
 def sort_diff_lats_to_pub(i, lats, pubs, topo):
-    loc, proc_delay, ld, pub_prob = get_topo_loc_delay(topo)
+    loc, proc_delay, ld = get_topo_loc_delay(topo)
     diff_lats = {}
     for m, lat in lats.items():
         if m in pubs:
