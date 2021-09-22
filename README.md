@@ -10,4 +10,4 @@ Simulator written in Python
 P2P experiment written in Go
 Core - matrix completion and peer selector from the Simulator
 
-Detail of each component is in the next directory level.
+To reproduce figures in the paper, see sim directory
