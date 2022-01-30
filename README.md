@@ -1,7 +1,5 @@
 # goldfish
 
-It is a part of submission to FC'22 with title,
-
 Goldfish: Peer selection using Matrix completion in unstructured P2P network.
 
 The repository contains 3 parts
